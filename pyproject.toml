@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "openclaw-cyd-bridge"
+version = "0.1.0"
+description = "Privacy-preserving local bridge for the OpenClaw CYD Monitor"
+authors = ["OpenClaw CYD Monitor contributors"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "openclaw_cyd_bridge", from = "bridge" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+ruff = "^0.11"
+
+[tool.poetry.scripts]
+openclaw-cyd-bridge = "openclaw_cyd_bridge.app:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
