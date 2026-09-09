@@ -41,15 +41,17 @@ struct MonitorStatus {
   int sessions = 0;
   int recentSessions = 0;
   int activeSessions = 0;
+  int tokenLoadPercent = 0;
+  int tokenSamples = 0;
   int activeTasks = 0;
   int taskFailures = 0;
-  int agents = 0;
   int heartbeatAgents = 0;
   int queuedEvents = 0;
   int degradedPlugins = 0;
   int workboardTriage = 0;
   int workboardRunning = 0;
   int workboardBlocked = 0;
+  int workboardDone24h = 0;
   String model = "unknown";
   String version = "unknown";
 };
@@ -71,6 +73,12 @@ bool otaUpdateInProgress = false;
 bool otaServiceRunning = false;
 bool drawLayout = true;
 bool screenNeedsClear = false;
+constexpr uint8_t TOKEN_HISTORY_SIZE = 32;
+constexpr uint8_t TOKEN_SAMPLE_MISSING = 255;
+constexpr uint8_t TOKEN_HIGH_PERCENT = 80;
+uint8_t tokenHistory[TOKEN_HISTORY_SIZE] = {};
+uint8_t tokenHistoryCount = 0;
+uint8_t tokenHistorySequence = 0;
 
 void drawHeader();
 void drawFooter();
@@ -79,6 +87,21 @@ void drawPulse();
 void drawDevice();
 void drawScreen(bool clear = false);
 void drawMascot(int x, int y, bool happy, uint8_t frame);
+
+void addTokenSample(int percent) {
+  // Un buco resta un buco: offline/stale no xe un consumo de zero token.
+  const uint8_t safePercent = percent < 0 ? TOKEN_SAMPLE_MISSING : constrain(percent, 0, 100);
+  if (tokenHistoryCount < TOKEN_HISTORY_SIZE) {
+    tokenHistory[tokenHistoryCount++] = safePercent;
+  } else {
+    // El grafico xe corto: spostar 31 byte costa meno de complicarlo con un ring buffer.
+    for (uint8_t index = 1; index < TOKEN_HISTORY_SIZE; index++) {
+      tokenHistory[index - 1] = tokenHistory[index];
+    }
+    tokenHistory[TOKEN_HISTORY_SIZE - 1] = safePercent;
+  }
+  tokenHistorySequence++;
+}
 
 bool otaWindowActive() {
   return otaWindowUntil != 0 && static_cast<long>(otaWindowUntil - millis()) > 0;
@@ -184,6 +207,48 @@ void drawMascot(int x, int y, bool happy, uint8_t frame) {
   display.fillRect(x + 34, y + 47, 9, 4, COLOR_ORANGE);
 }
 
+void drawStatusIcon(int x, int y, bool connected, bool stale, uint8_t frame) {
+  // Aragostina compatta: pulsa online, ambra se stale, rossa offline.
+  const uint16_t body = stale ? COLOR_WARN : connected ? COLOR_CORAL : COLOR_RED;
+  const uint16_t signal = connected && frame % 2 ? COLOR_MINT : body;
+  display.fillRect(x, y, 34, 30, COLOR_PANEL);
+  display.fillRect(x + 16, y, 2, 5, signal);
+  display.fillRect(x + 7, y + 6, 20, 16, body);
+  display.fillRect(x + 10, y + 10, 4, 4, COLOR_BG);
+  display.fillRect(x + 20, y + 10, 4, 4, COLOR_BG);
+  display.fillRect(x + 2, y + 11, 5, 4, body);
+  display.fillRect(x + 27, y + 11, 5, 4, body);
+  display.fillRect(x + 9, y + 23, 6, 3, body);
+  display.fillRect(x + 19, y + 23, 6, 3, body);
+}
+
+void drawTokenGraph(int x, int y, int width, int height) {
+  const bool hasTokens = status.valid && !status.stale && status.tokenSamples > 0;
+  display.fillRect(x, y, width, height, COLOR_PANEL);
+  display.drawFastHLine(x, y, width, COLOR_PANEL_EDGE);
+  display.drawFastHLine(x, y + height - 1, width, COLOR_PANEL_EDGE);
+  display.drawFastVLine(x, y, height, COLOR_PANEL_EDGE);
+  if (hasTokens) {
+    const int barWidth = width / TOKEN_HISTORY_SIZE;
+    for (uint8_t index = 0; index < tokenHistoryCount; index++) {
+      if (tokenHistory[index] == TOKEN_SAMPLE_MISSING) continue;
+      // Un carico piccolo resta visibile; zero invece no inventa una colonna.
+      const int barHeight = tokenHistory[index] == 0 ? 0 :
+                            max(1, tokenHistory[index] * (height - 1) / 100);
+      const int barX = x + width - (tokenHistoryCount - index) * barWidth;
+      const uint16_t color = tokenHistory[index] >= TOKEN_HIGH_PERCENT ? COLOR_RED : COLOR_MINT;
+      if (barHeight > 0) {
+        display.fillRect(barX, y + height - 1 - barHeight, barWidth - 1, barHeight, color);
+      }
+    }
+  }
+  // Scala fissa 0-100: la soglia tratteggiada corrisponde al cambio de colore.
+  const int thresholdY = y + height - 1 - TOKEN_HIGH_PERCENT * (height - 1) / 100;
+  for (int tickX = x; tickX < x + width; tickX += 6) {
+    display.drawFastHLine(tickX, thresholdY, 2, hasTokens ? COLOR_RED : COLOR_PANEL_EDGE);
+  }
+}
+
 void drawHeader() {
   drawText("OPENCLAW", 9, 7, 105, 2, COLOR_WHITE, COLOR_BG);
   drawText("MISSION CONTROL", 124, 13, 100, 1, COLOR_MUTED, COLOR_BG);
@@ -211,17 +276,25 @@ void drawFooter() {
 void drawHome() {
   drawPanel(8, 37, 304, 62);
   const bool healthy = status.valid && status.online && !status.stale;
-  drawMascot(16, 42, healthy, (millis() / 500) % 2);
-  drawLabel("GATEWAY", 87, 47);
-  const String state = !status.valid ? "Connecting" : status.stale ? "Data stale" :
-                       status.online ? "Connected" : "Offline";
-  drawValue(state, 87, 63, healthy ? COLOR_MINT : COLOR_WARN, 121);
-  drawLabel("ROUND TRIP", 221, 47);
-  drawValue(healthy ? String(status.latencyMs) + " ms" : "-- ms", 221, 63,
-            COLOR_WHITE, 80);
+  const bool hasTokens = status.valid && !status.stale && status.tokenSamples > 0;
+  drawStatusIcon(18, 52, healthy, status.stale, (millis() / 500) % 2);
+  drawLabel("CONTEXT TOKENS", 61, 42, COLOR_WHITE);
+  drawLabel("Active <15m / weighted", 61, 52);
+  drawLabel("NOW", 230, 45);
+  drawText(hasTokens ? String(constrain(status.tokenLoadPercent, 0, 100)) + "%" : "--%",
+           255, 41, 47, 2, !hasTokens ? COLOR_MUTED :
+           status.tokenLoadPercent >= TOKEN_HIGH_PERCENT ? COLOR_RED : COLOR_MINT);
+  // 15m seleziona le sessioni; l'asse sotto mostra solo ~2m40s di storia.
+  drawLabel("100", 61, 62);
+  drawLabel("0", 73, 81);
+  drawTokenGraph(85, 63, 192, 23);
+  drawLabel("80%", 282, 65, hasTokens ? COLOR_RED : COLOR_MUTED);
+  drawLabel("~2m40s", 85, 89);
+  drawLabel("5s/step", 166, 89);
+  drawLabel("now", 259, 89);
   // Sei cifre subito leggibili; la mascotte no se magna mezo display.
   drawMetricTile("ACTIVE 15M", status.activeSessions, 8, 105, COLOR_ORANGE);
-  drawMetricTile("AGENTS", status.agents, 111, 105, COLOR_MINT);
+  drawMetricTile("DONE 24H", status.workboardDone24h, 111, 105, COLOR_MINT);
   drawMetricTile("ACTIVE TASKS", status.activeTasks, 214, 105,
                  status.activeTasks ? COLOR_ORANGE : COLOR_WHITE);
   drawMetricTile("WB TRIAGE", status.workboardTriage, 8, 159,
@@ -282,7 +355,10 @@ void drawScreen(bool clear) {
   static uint8_t previousPage = 255;
   String key = String(status.valid) + ":" + status.online + ":" + status.stale + ":" +
                status.latencyMs + ":" + status.sessions + ":" + status.recentSessions + ":" +
-               status.activeSessions + ":" + status.agents + ":" + status.activeTasks + ":" +
+               status.activeSessions + ":" + status.tokenLoadPercent + ":" +
+               status.tokenSamples + ":" + tokenHistorySequence + ":" +
+               status.workboardDone24h + ":" +
+               status.activeTasks + ":" +
                status.queuedEvents + ":" + status.workboardTriage + ":" +
                status.workboardRunning + ":" + status.workboardBlocked + ":" +
                status.degradedPlugins + ":" + status.heartbeatAgents + ":" + status.taskFailures +
@@ -294,8 +370,9 @@ void drawScreen(bool clear) {
   if (!drawLayout && key == previousKey) {
     if (page == 0) {
       const bool healthy = status.valid && status.online && !status.stale;
-      display.fillRect(43, 45, 6, 4,
-                       (millis() / 500) % 2 ? (healthy ? COLOR_MINT : COLOR_WARN) : COLOR_ORANGE);
+      display.fillRect(34, 52, 2, 5,
+                       healthy && (millis() / 500) % 2 ? COLOR_MINT :
+                       healthy ? COLOR_CORAL : status.stale ? COLOR_WARN : COLOR_RED);
     }
     display.endWrite();
     return;
@@ -322,6 +399,8 @@ void fetchStatus() {
   if (!WiFi.isConnected() || bridgeUrl.isEmpty()) {
     status.valid = false;
     status.online = false;
+    status.stale = false;
+    addTokenSample(-1);
     return;
   }
 
@@ -333,6 +412,7 @@ void fetchStatus() {
   if (code != HTTP_CODE_OK) {
     status.online = false;
     status.stale = true;
+    addTokenSample(-1);
     http.end();
     return;
   }
@@ -343,6 +423,7 @@ void fetchStatus() {
   if (error) {
     status.online = false;
     status.stale = true;
+    addTokenSample(-1);
     return;
   }
 
@@ -353,16 +434,19 @@ void fetchStatus() {
   status.sessions = document["sessions"]["total"] | 0;
   status.recentSessions = document["sessions"]["recent"] | 0;
   status.activeSessions = document["sessions"]["active"] | 0;
+  status.tokenLoadPercent = document["sessions"]["tokenLoadPercent"] | 0;
+  status.tokenSamples = document["sessions"]["tokenSamples"] | 0;
+  addTokenSample(!status.stale && status.tokenSamples > 0 ? status.tokenLoadPercent : -1);
   status.model = String(document["sessions"]["model"] | "unknown");
   status.activeTasks = document["tasks"]["active"] | 0;
   status.taskFailures = document["tasks"]["failures"] | 0;
-  status.agents = document["agents"]["total"] | 0;
   status.heartbeatAgents = document["agents"]["heartbeatEnabled"] | 0;
   status.queuedEvents = document["system"]["queuedEvents"] | 0;
   status.degradedPlugins = document["system"]["degradedPlugins"] | 0;
   status.workboardTriage = document["workboard"]["triage"] | 0;
   status.workboardRunning = document["workboard"]["running"] | 0;
   status.workboardBlocked = document["workboard"]["blocked"] | 0;
+  status.workboardDone24h = document["workboard"]["done24h"] | 0;
   status.version = String(document["system"]["version"] | "unknown");
 }
 

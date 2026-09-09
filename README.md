@@ -23,11 +23,15 @@ OpenClaw CLI -> local bridge :8765 -> sanitized JSON -> ESP32 CYD
 The public payload contains:
 
 - Gateway online state and latency;
-- sessions active in the last 15 minutes plus aggregate task, agent, and heartbeat counts;
-- triage, running, and blocked counts from the default Workboard, excluding
+- sessions active in the last 15 minutes plus a rolling aggregate token-load graph;
+- triage, running, blocked, and completed-in-24-hours counts from the default Workboard, excluding
   archived cards so the numbers match its visible columns;
 - latest-session model name;
 - OpenClaw version and degraded-plugin count.
+
+Token load is the context-capacity-weighted percentage across sessions updated
+in the last 15 minutes whose token counters are fresh. The display keeps 32
+five-second samples (about 2 minutes 40 seconds) and renders missed polls as gaps.
 
 ## Hardware
 
@@ -93,11 +97,11 @@ recovery path.
   "ok": true,
   "collectedAtMs": 1788880000000,
   "gateway": { "online": true, "latencyMs": 42 },
-  "sessions": { "total": 17, "recent": 3, "active": 2, "model": "gpt-6" },
+  "sessions": { "total": 17, "recent": 3, "active": 2, "tokenLoadPercent": 31, "tokenSamples": 2, "model": "gpt-6" },
   "tasks": { "active": 2, "failures": 0 },
   "agents": { "total": 4, "heartbeatEnabled": 2 },
   "system": { "version": "2026.9.3", "queuedEvents": 0, "degradedPlugins": 0 },
-  "workboard": { "triage": 2, "running": 1, "blocked": 0 }
+  "workboard": { "triage": 2, "running": 1, "blocked": 0, "done24h": 7 }
 }
 ```
 

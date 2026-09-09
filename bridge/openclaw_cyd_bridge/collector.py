@@ -26,6 +26,8 @@ class SessionStatus:
     total: int
     recent: int
     active: int
+    token_load_percent: int
+    token_samples: int
     model: str
 
 
@@ -61,6 +63,7 @@ class WorkboardStatus:
     triage: int
     running: int
     blocked: int
+    done_24h: int
 
 
 @dataclass(frozen=True)
@@ -93,6 +96,8 @@ class StatusSnapshot:
                 "total": raw["sessions"]["total"],
                 "recent": raw["sessions"]["recent"],
                 "active": raw["sessions"]["active"],
+                "tokenLoadPercent": raw["sessions"]["token_load_percent"],
+                "tokenSamples": raw["sessions"]["token_samples"],
                 "model": raw["sessions"]["model"],
             },
             "tasks": raw["tasks"],
@@ -105,7 +110,12 @@ class StatusSnapshot:
                 "queuedEvents": raw["system"]["queued_events"],
                 "degradedPlugins": raw["system"]["degraded_plugins"],
             },
-            "workboard": raw["workboard"],
+            "workboard": {
+                "triage": raw["workboard"]["triage"],
+                "running": raw["workboard"]["running"],
+                "blocked": raw["workboard"]["blocked"],
+                "done24h": raw["workboard"]["done_24h"],
+            },
         }
 
 
@@ -128,7 +138,7 @@ def _as_int(value: Any) -> int:
 def snapshot_from_payload(
     payload: dict[str, Any],
     now_ms: int | None = None,
-    active_sessions: int = 0,
+    active_payload: dict[str, Any] | None = None,
     workboard_payload: dict[str, Any] | None = None,
 ) -> StatusSnapshot:
     """Convert the CLI payload while dropping all message and identity fields."""
@@ -142,6 +152,8 @@ def snapshot_from_payload(
     agent_items = _as_list(agents.get("agents"))
     heartbeat = _as_dict(payload.get("heartbeat"))
     heartbeat_items = [_as_dict(item) for item in _as_list(heartbeat.get("agents"))]
+    active_payload = _as_dict(active_payload)
+    active_items = [_as_dict(item) for item in _as_list(active_payload.get("sessions"))]
     workboard_cards = [
         _as_dict(item) for item in _as_list(_as_dict(workboard_payload).get("cards"))
     ]
@@ -153,6 +165,29 @@ def snapshot_from_payload(
             and not _as_dict(item.get("metadata")).get("archivedAt")
             for item in workboard_cards
         )
+
+    cutoff_ms = (now_ms if now_ms is not None else int(time.time() * 1000)) - 86400000
+
+    def done_in_last_24h() -> int:
+        # Conta el lavoro finio, no le card vecie che dorme in archivio.
+        return sum(
+            item.get("status") == "done"
+            and not _as_dict(item.get("metadata")).get("archivedAt")
+            and _as_int(item.get("completedAt")) >= cutoff_ms
+            for item in workboard_cards
+        )
+
+    fresh_token_items = [
+        item
+        for item in active_items
+        if item.get("totalTokensFresh") is True
+        and isinstance(item.get("totalTokens"), (int, float))
+        and not isinstance(item.get("totalTokens"), bool)
+        and _as_int(item.get("contextTokens")) > 0
+    ]
+    token_capacity = sum(_as_int(item.get("contextTokens")) for item in fresh_token_items)
+    token_usage = sum(_as_int(item.get("totalTokens")) for item in fresh_token_items)
+    token_load_percent = min(100, round(token_usage * 100 / token_capacity)) if token_capacity else 0
 
     model = newest.get("model") or newest.get("configuredModel") or "unknown"
     if not isinstance(model, str):
@@ -169,7 +204,9 @@ def snapshot_from_payload(
         sessions=SessionStatus(
             total=_as_int(sessions.get("count")),
             recent=len(recent),
-            active=_as_int(active_sessions),
+            active=_as_int(active_payload.get("count")),
+            token_load_percent=token_load_percent,
+            token_samples=len(fresh_token_items),
             model=model[:31],
         ),
         tasks=TaskStatus(
@@ -189,6 +226,7 @@ def snapshot_from_payload(
             triage=cards_with_status("triage"),
             running=cards_with_status("running"),
             blocked=cards_with_status("blocked"),
+            done_24h=done_in_last_24h(),
         ),
     )
 
@@ -233,6 +271,6 @@ class OpenClawCollector:
             workboard_payload = workboard_future.result()
         return snapshot_from_payload(
             payload,
-            active_sessions=_as_int(active_payload.get("count")),
+            active_payload=active_payload,
             workboard_payload=workboard_payload,
         )

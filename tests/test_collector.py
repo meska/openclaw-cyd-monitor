@@ -29,11 +29,27 @@ def test_snapshot_is_aggregate_and_drops_identity_fields() -> None:
             {"status": "running", "notes": "private notes"},
             {"status": "blocked", "metadata": {"secret": "private metadata"}},
             {"status": "blocked", "metadata": {"archivedAt": 1234}},
-            {"status": "done"},
+            {"status": "done", "completedAt": 99_999_000},
+            {
+                "status": "done",
+                "completedAt": 99_998_000,
+                "metadata": {"archivedAt": 99_999_500},
+            },
+            {"status": "done", "completedAt": 13_599_999},
         ]
     }
     public = snapshot_from_payload(
-        payload, now_ms=1234, active_sessions=3, workboard_payload=workboard
+        payload,
+        now_ms=100_000_000,
+        active_payload={
+            "count": 3,
+            "sessions": [
+                {"totalTokensFresh": True, "totalTokens": 40, "contextTokens": 100},
+                {"totalTokensFresh": True, "totalTokens": 20, "contextTokens": 100},
+                {"totalTokensFresh": False, "totalTokens": 99, "contextTokens": 100},
+            ],
+        },
+        workboard_payload=workboard,
     ).to_dict()
 
     assert public["gateway"] == {"online": True, "latencyMs": 42}
@@ -41,10 +57,17 @@ def test_snapshot_is_aggregate_and_drops_identity_fields() -> None:
         "total": 17,
         "recent": 1,
         "active": 3,
+        "tokenLoadPercent": 30,
+        "tokenSamples": 2,
         "model": "gpt-test",
     }
     assert public["agents"] == {"total": 2, "heartbeatEnabled": 1}
-    assert public["workboard"] == {"triage": 1, "running": 1, "blocked": 1}
+    assert public["workboard"] == {
+        "triage": 1,
+        "running": 1,
+        "blocked": 1,
+        "done24h": 1,
+    }
     serialized = str(public)
     assert "private-session-key" not in serialized
     assert "private-recipient" not in serialized
@@ -60,5 +83,12 @@ def test_snapshot_tolerates_missing_and_wrong_types() -> None:
     assert public["ok"] is False
     assert public["sessions"]["model"] == "unknown"
     assert public["sessions"]["active"] == 0
+    assert public["sessions"]["tokenLoadPercent"] == 0
+    assert public["sessions"]["tokenSamples"] == 0
     assert public["tasks"] == {"active": 0, "failures": 0}
-    assert public["workboard"] == {"triage": 0, "running": 0, "blocked": 0}
+    assert public["workboard"] == {
+        "triage": 0,
+        "running": 0,
+        "blocked": 0,
+        "done24h": 0,
+    }
