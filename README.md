@@ -42,6 +42,11 @@ display keeps it in gray. Fresh samples resume the graph without inventing zeroe
 - XPT2046 resistive touch controller;
 - Wi-Fi access to the machine running OpenClaw.
 
+**[Buy the ESP32-2432S028R / CYD display on AliExpress](https://www.awin1.com/cread.php?awinmid=12251&awinaffid=3083039&ued=https%3A%2F%2Fwww.aliexpress.com%2Fitem%2F1005007401669955.html)**
+
+> **Affiliate disclosure:** this is an affiliate link. If you purchase through
+> it, the maintainer may receive a commission at no additional cost to you.
+
 ## Run the bridge
 
 Requires Python 3.11+, Poetry, and a working `openclaw` CLI.
