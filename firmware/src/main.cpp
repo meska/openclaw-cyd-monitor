@@ -103,6 +103,14 @@ void addTokenSample(int percent) {
   tokenHistorySequence++;
 }
 
+bool tokenHistoryHasData() {
+  // Fin che no riva un campion novo, tegnimo visibile l'ultima storia bona.
+  for (uint8_t index = 0; index < tokenHistoryCount; index++) {
+    if (tokenHistory[index] != TOKEN_SAMPLE_MISSING) return true;
+  }
+  return false;
+}
+
 bool otaWindowActive() {
   return otaWindowUntil != 0 && static_cast<long>(otaWindowUntil - millis()) > 0;
 }
@@ -223,12 +231,13 @@ void drawStatusIcon(int x, int y, bool connected, bool stale, uint8_t frame) {
 }
 
 void drawTokenGraph(int x, int y, int width, int height) {
-  const bool hasTokens = status.valid && !status.stale && status.tokenSamples > 0;
+  const bool hasHistory = tokenHistoryHasData();
+  const bool historical = !status.valid || status.stale || !status.online;
   display.fillRect(x, y, width, height, COLOR_PANEL);
   display.drawFastHLine(x, y, width, COLOR_PANEL_EDGE);
   display.drawFastHLine(x, y + height - 1, width, COLOR_PANEL_EDGE);
   display.drawFastVLine(x, y, height, COLOR_PANEL_EDGE);
-  if (hasTokens) {
+  if (hasHistory) {
     const int barWidth = width / TOKEN_HISTORY_SIZE;
     for (uint8_t index = 0; index < tokenHistoryCount; index++) {
       if (tokenHistory[index] == TOKEN_SAMPLE_MISSING) continue;
@@ -236,7 +245,8 @@ void drawTokenGraph(int x, int y, int width, int height) {
       const int barHeight = tokenHistory[index] == 0 ? 0 :
                             max(1, tokenHistory[index] * (height - 1) / 100);
       const int barX = x + width - (tokenHistoryCount - index) * barWidth;
-      const uint16_t color = tokenHistory[index] >= TOKEN_HIGH_PERCENT ? COLOR_RED : COLOR_MINT;
+      const uint16_t color = historical ? (status.stale ? COLOR_WARN : COLOR_MUTED) :
+                             tokenHistory[index] >= TOKEN_HIGH_PERCENT ? COLOR_RED : COLOR_MINT;
       if (barHeight > 0) {
         display.fillRect(barX, y + height - 1 - barHeight, barWidth - 1, barHeight, color);
       }
@@ -245,7 +255,9 @@ void drawTokenGraph(int x, int y, int width, int height) {
   // Scala fissa 0-100: la soglia tratteggiada corrisponde al cambio de colore.
   const int thresholdY = y + height - 1 - TOKEN_HIGH_PERCENT * (height - 1) / 100;
   for (int tickX = x; tickX < x + width; tickX += 6) {
-    display.drawFastHLine(tickX, thresholdY, 2, hasTokens ? COLOR_RED : COLOR_PANEL_EDGE);
+    const uint16_t thresholdColor = !hasHistory ? COLOR_PANEL_EDGE :
+                                    historical ? (status.stale ? COLOR_WARN : COLOR_MUTED) : COLOR_RED;
+    display.drawFastHLine(tickX, thresholdY, 2, thresholdColor);
   }
 }
 
@@ -276,19 +288,22 @@ void drawFooter() {
 void drawHome() {
   drawPanel(8, 37, 304, 62);
   const bool healthy = status.valid && status.online && !status.stale;
-  const bool hasTokens = status.valid && !status.stale && status.tokenSamples > 0;
+  const bool hasHistory = tokenHistoryHasData();
+  const bool historical = hasHistory && (!status.valid || status.stale || !status.online);
   drawStatusIcon(18, 52, healthy, status.stale, (millis() / 500) % 2);
   drawLabel("CONTEXT TOKENS", 61, 42, COLOR_WHITE);
   drawLabel("Active <15m / weighted", 61, 52);
-  drawLabel("NOW", 230, 45);
-  drawText(hasTokens ? String(constrain(status.tokenLoadPercent, 0, 100)) + "%" : "--%",
-           255, 41, 47, 2, !hasTokens ? COLOR_MUTED :
+  drawLabel(historical ? "LAST" : "NOW", 230, 45, historical ? COLOR_WARN : COLOR_MUTED);
+  drawText(hasHistory ? String(constrain(status.tokenLoadPercent, 0, 100)) + "%" : "--%",
+           255, 41, 47, 2, !hasHistory ? COLOR_MUTED : historical ?
+           (status.stale ? COLOR_WARN : COLOR_MUTED) :
            status.tokenLoadPercent >= TOKEN_HIGH_PERCENT ? COLOR_RED : COLOR_MINT);
   // 15m seleziona le sessioni; l'asse sotto mostra solo ~2m40s di storia.
   drawLabel("100", 61, 62);
   drawLabel("0", 73, 81);
   drawTokenGraph(85, 63, 192, 23);
-  drawLabel("80%", 282, 65, hasTokens ? COLOR_RED : COLOR_MUTED);
+  drawLabel("80%", 282, 65, !hasHistory ? COLOR_MUTED : historical ?
+            (status.stale ? COLOR_WARN : COLOR_MUTED) : COLOR_RED);
   drawLabel("~2m40s", 85, 89);
   drawLabel("5s/step", 166, 89);
   drawLabel("now", 259, 89);
@@ -400,7 +415,6 @@ void fetchStatus() {
     status.valid = false;
     status.online = false;
     status.stale = false;
-    addTokenSample(-1);
     return;
   }
 
@@ -412,7 +426,6 @@ void fetchStatus() {
   if (code != HTTP_CODE_OK) {
     status.online = false;
     status.stale = true;
-    addTokenSample(-1);
     http.end();
     return;
   }
@@ -423,7 +436,6 @@ void fetchStatus() {
   if (error) {
     status.online = false;
     status.stale = true;
-    addTokenSample(-1);
     return;
   }
 
@@ -436,7 +448,9 @@ void fetchStatus() {
   status.activeSessions = document["sessions"]["active"] | 0;
   status.tokenLoadPercent = document["sessions"]["tokenLoadPercent"] | 0;
   status.tokenSamples = document["sessions"]["tokenSamples"] | 0;
-  addTokenSample(!status.stale && status.tokenSamples > 0 ? status.tokenLoadPercent : -1);
+  if (!status.stale) {
+    addTokenSample(status.tokenSamples > 0 ? status.tokenLoadPercent : -1);
+  }
   status.model = String(document["sessions"]["model"] | "unknown");
   status.activeTasks = document["tasks"]["active"] | 0;
   status.taskFailures = document["tasks"]["failures"] | 0;

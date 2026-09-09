@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" viewBox="0 0 320 240">
+  <title>OpenClaw CYD dashboard preview</title>
+  <desc>Deterministic preview of the 320 by 240 overview page with sanitized representative values.</desc>
+  <style>
+    text { font-family: Menlo, Consolas, monospace; dominant-baseline: hanging; }
+    .small { font-size: 6px; }
+    .label { font-size: 6px; fill: #9ca6aa; }
+    .value { font-size: 14px; font-weight: 700; }
+    .panel { fill: #111820; stroke: #2b3138; stroke-width: 1; }
+  </style>
+  <rect width="320" height="240" fill="#081018"/>
+  <text x="9" y="7" fill="#edf3ef" font-size="12" font-weight="700">OPENCLAW</text>
+  <text x="124" y="13" class="small" fill="#9ca6aa">MISSION CONTROL</text>
+  <rect x="251" y="13" width="4" height="4" fill="#74ef8a"/>
+  <text x="263" y="12" class="small" fill="#74ef8a">LIVE</text>
+  <line x1="8" y1="30" x2="312" y2="30" stroke="#2b3138"/>
+
+  <rect class="panel" x="8" y="37" width="304" height="62" rx="4"/>
+  <!-- Aragostina compatta; i rettangoli seguono il renderer del firmware. -->
+  <g transform="translate(18 52)" fill="#fb7168">
+    <rect x="16" y="0" width="2" height="5" fill="#74ef8a"/>
+    <rect x="7" y="6" width="20" height="16"/>
+    <rect x="2" y="11" width="5" height="4"/>
+    <rect x="27" y="11" width="5" height="4"/>
+    <rect x="9" y="23" width="6" height="3"/>
+    <rect x="19" y="23" width="6" height="3"/>
+    <rect x="10" y="10" width="4" height="4" fill="#081018"/>
+    <rect x="20" y="10" width="4" height="4" fill="#081018"/>
+  </g>
+  <text x="61" y="42" class="small" fill="#edf3ef">CONTEXT TOKENS</text>
+  <text x="61" y="52" class="label">Active &lt;15m / weighted</text>
+  <text x="230" y="45" class="label">NOW</text>
+  <text x="255" y="41" fill="#74ef8a" font-size="12" font-weight="700">35%</text>
+  <text x="61" y="62" class="label">100</text>
+  <text x="73" y="81" class="label">0</text>
+  <g transform="translate(85 63)">
+    <rect width="192" height="23" fill="#111820" stroke="#2b3138"/>
+    <line x1="0" y1="5" x2="192" y2="5" stroke="#f56463" stroke-dasharray="2 4"/>
+    <g fill="#74ef8a">
+      <rect x="12" y="15" width="5" height="7"/><rect x="18" y="14" width="5" height="8"/>
+      <rect x="24" y="15" width="5" height="7"/><rect x="30" y="13" width="5" height="9"/>
+      <rect x="36" y="14" width="5" height="8"/><rect x="42" y="12" width="5" height="10"/>
+      <rect x="48" y="13" width="5" height="9"/><rect x="54" y="14" width="5" height="8"/>
+      <rect x="60" y="12" width="5" height="10"/><rect x="66" y="11" width="5" height="11"/>
+      <rect x="72" y="12" width="5" height="10"/><rect x="78" y="13" width="5" height="9"/>
+      <rect x="84" y="12" width="5" height="10"/><rect x="90" y="10" width="5" height="12"/>
+      <rect x="96" y="11" width="5" height="11"/><rect x="102" y="12" width="5" height="10"/>
+      <rect x="108" y="13" width="5" height="9"/><rect x="114" y="12" width="5" height="10"/>
+      <rect x="120" y="11" width="5" height="11"/><rect x="126" y="10" width="5" height="12"/>
+      <rect x="132" y="11" width="5" height="11"/><rect x="138" y="12" width="5" height="10"/>
+      <rect x="144" y="11" width="5" height="11"/><rect x="150" y="10" width="5" height="12"/>
+      <rect x="156" y="9" width="5" height="13"/><rect x="162" y="10" width="5" height="12"/>
+      <rect x="168" y="11" width="5" height="11"/><rect x="174" y="10" width="5" height="12"/>
+      <rect x="180" y="9" width="5" height="13"/><rect x="186" y="10" width="5" height="12"/>
+    </g>
+  </g>
+  <text x="282" y="65" class="small" fill="#f56463">80%</text>
+  <text x="85" y="89" class="label">~2m40s</text>
+  <text x="166" y="89" class="label">5s/step</text>
+  <text x="259" y="89" class="label">now</text>
+
+  <g>
+    <rect class="panel" x="8" y="105" width="97" height="48" rx="4"/>
+    <text x="17" y="112" class="label">ACTIVE 15M</text><text x="17" y="124" class="value" fill="#ff9b54">10</text>
+    <rect class="panel" x="111" y="105" width="97" height="48" rx="4"/>
+    <text x="120" y="112" class="label">DONE 24H</text><text x="120" y="124" class="value" fill="#74ef8a">11</text>
+    <rect class="panel" x="214" y="105" width="97" height="48" rx="4"/>
+    <text x="223" y="112" class="label">ACTIVE TASKS</text><text x="223" y="124" class="value" fill="#ff9b54">7</text>
+    <rect class="panel" x="8" y="159" width="97" height="48" rx="4"/>
+    <text x="17" y="166" class="label">WB TRIAGE</text><text x="17" y="178" class="value" fill="#ffd166">2</text>
+    <rect class="panel" x="111" y="159" width="97" height="48" rx="4"/>
+    <text x="120" y="166" class="label">WB RUNNING</text><text x="120" y="178" class="value" fill="#ff9b54">1</text>
+    <rect class="panel" x="214" y="159" width="97" height="48" rx="4"/>
+    <text x="223" y="166" class="label">WB BLOCKED</text><text x="223" y="178" class="value" fill="#f56463">1</text>
+  </g>
+
+  <line x1="8" y1="213" x2="312" y2="213" stroke="#2b3138"/>
+  <rect x="18" y="213" width="76" height="2" fill="#fb7168"/>
+  <text x="31" y="225" class="small" fill="#fb7168">OVERVIEW</text>
+  <text x="133" y="225" class="small" fill="#9ca6aa">ACTIVITY</text>
+  <text x="241" y="225" class="small" fill="#9ca6aa">DEVICE</text>
+</svg>

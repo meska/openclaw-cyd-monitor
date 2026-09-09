@@ -7,7 +7,7 @@ The firmware shows a tiny animated claw-bot alongside sanitized Gateway,
 session, task, agent, heartbeat, queue, plugin, and device metrics. Touch the
 named footer tabs to switch pages.
 
-![OpenClaw CYD visual direction](docs/concept.png)
+![OpenClaw CYD dashboard](docs/dashboard-preview.svg)
 
 ## Why a bridge?
 
@@ -31,7 +31,9 @@ The public payload contains:
 
 Token load is the context-capacity-weighted percentage across sessions updated
 in the last 15 minutes whose token counters are fresh. The display keeps 32
-five-second samples (about 2 minutes 40 seconds) and renders missed polls as gaps.
+five-second samples (about 2 minutes 40 seconds). If the bridge becomes stale,
+the last valid history stays visible in amber with a `LAST` label; a disconnected
+display keeps it in gray. Fresh samples resume the graph without inventing zeroes.
 
 ## Hardware
 
@@ -113,6 +115,10 @@ recovery path.
 - Use a GitHub noreply address for public commits.
 
 ## Visual direction
+
+The dashboard screenshot above is a deterministic 320x240 rendering of the
+firmware layout, using representative sanitized values from the public payload.
+It can be regenerated from [`docs/dashboard-preview.svg`](docs/dashboard-preview.svg).
 
 The original concept artwork in `docs/concept.png` was generated with OpenAI's
 built-in image generation tool. The firmware mascot is a deterministic,
