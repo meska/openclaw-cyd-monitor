@@ -24,7 +24,8 @@ The public payload contains:
 
 - Gateway online state and latency;
 - sessions active in the last 15 minutes plus aggregate task, agent, and heartbeat counts;
-- aggregate Workboard triage, running, and blocked card counts;
+- triage, running, and blocked counts from the default Workboard, excluding
+  archived cards so the numbers match its visible columns;
 - latest-session model name;
 - OpenClaw version and degraded-plugin count.
 

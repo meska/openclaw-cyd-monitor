@@ -147,8 +147,12 @@ def snapshot_from_payload(
     ]
 
     def cards_with_status(expected: str) -> int:
-        # Se conta solo i stati: titoli, note e metadata resta ben chiusi sul Mac.
-        return sum(item.get("status") == expected for item in workboard_cards)
+        # Conta quel che mostra la board: le card archiviate no le xe piu' operative.
+        return sum(
+            item.get("status") == expected
+            and not _as_dict(item.get("metadata")).get("archivedAt")
+            for item in workboard_cards
+        )
 
     model = newest.get("model") or newest.get("configuredModel") or "unknown"
     if not isinstance(model, str):
@@ -221,7 +225,9 @@ class OpenClawCollector:
                 run_json,
                 ["sessions", "--all-agents", "--active", "15", "--limit", "all", "--json"],
             )
-            workboard_future = executor.submit(run_json, ["workboard", "list", "--json"])
+            workboard_future = executor.submit(
+                run_json, ["workboard", "list", "--board", "default", "--json"]
+            )
             payload = status_future.result()
             active_payload = active_future.result()
             workboard_payload = workboard_future.result()

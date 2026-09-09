@@ -28,6 +28,7 @@ def test_snapshot_is_aggregate_and_drops_identity_fields() -> None:
             {"status": "triage", "title": "private title"},
             {"status": "running", "notes": "private notes"},
             {"status": "blocked", "metadata": {"secret": "private metadata"}},
+            {"status": "blocked", "metadata": {"archivedAt": 1234}},
             {"status": "done"},
         ]
     }
