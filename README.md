@@ -4,8 +4,8 @@ A friendly OpenClaw status display for the **ESP32-2432S028R**, better known as
 the 2.8-inch Cheap Yellow Display (CYD).
 
 The firmware shows a tiny animated claw-bot alongside sanitized Gateway,
-session, task, heartbeat, queue, memory-pressure, and device metrics. Touch the
-footer to switch pages.
+session, task, agent, heartbeat, queue, plugin, and device metrics. Touch the
+named footer tabs to switch pages.
 
 ![OpenClaw CYD visual direction](docs/concept.png)
 
@@ -23,8 +23,9 @@ OpenClaw CLI -> local bridge :8765 -> sanitized JSON -> ESP32 CYD
 The public payload contains:
 
 - Gateway online state and latency;
-- aggregate session, task, agent, heartbeat, and queue counts;
-- current model name and context percentage from the newest status entry;
+- sessions active in the last 15 minutes plus aggregate task, agent, and heartbeat counts;
+- aggregate Workboard triage, running, and blocked card counts;
+- latest-session model name;
 - OpenClaw version and degraded-plugin count.
 
 ## Hardware
@@ -60,18 +61,42 @@ On first boot, connect a phone or laptop to the `OpenClaw-CYD` Wi-Fi network.
 The captive portal asks for Wi-Fi credentials and the bridge URL, such as
 `http://192.168.1.20:8765`.
 
+### Later updates over Wi-Fi
+
+After the first USB flash, updates no longer require the BOOT button:
+
+1. Open the device page on the display.
+2. Hold the main panel for two seconds to open a two-minute OTA window.
+3. Upload from the same LAN:
+
+   ```bash
+   cd firmware
+   uvx --from platformio platformio run -e cyd-ota --target upload
+   ```
+
+The OTA service appears as `openclaw-cyd.local` only during the physically
+activated window. An upload that starts inside the window is allowed to finish;
+a failed transfer leaves the running firmware intact because the new image is
+written to the alternate OTA partition.
+
+If the display stays attached over a data-capable USB cable, PlatformIO can
+also enter the bootloader through DTR/RTS and update it unattended. Use the
+regular `cyd` upload command above; the physical BOOT button remains only a
+recovery path.
+
 ## API example
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "ok": true,
   "collectedAtMs": 1788880000000,
   "gateway": { "online": true, "latencyMs": 42 },
-  "sessions": { "total": 17, "recent": 3, "model": "gpt-6", "contextPercent": 31 },
+  "sessions": { "total": 17, "recent": 3, "active": 2, "model": "gpt-6" },
   "tasks": { "active": 2, "failures": 0 },
   "agents": { "total": 4, "heartbeatEnabled": 2 },
-  "system": { "version": "2026.9.3", "queuedEvents": 0, "degradedPlugins": 0 }
+  "system": { "version": "2026.9.3", "queuedEvents": 0, "degradedPlugins": 0 },
+  "workboard": { "triage": 2, "running": 1, "blocked": 0 }
 }
 ```
 

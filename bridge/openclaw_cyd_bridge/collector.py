@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -24,8 +25,8 @@ class SessionStatus:
 
     total: int
     recent: int
+    active: int
     model: str
-    context_percent: int
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,15 @@ class SystemStatus:
 
 
 @dataclass(frozen=True)
+class WorkboardStatus:
+    """Aggregate card states; titles and card metadata never leave the Mac."""
+
+    triage: int
+    running: int
+    blocked: int
+
+
+@dataclass(frozen=True)
 class StatusSnapshot:
     """Wire format consumed by the ESP32 firmware."""
 
@@ -65,6 +75,7 @@ class StatusSnapshot:
     tasks: TaskStatus
     agents: AgentStatus
     system: SystemStatus
+    workboard: WorkboardStatus
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready dictionary using firmware-friendly camelCase keys."""
@@ -81,8 +92,8 @@ class StatusSnapshot:
             "sessions": {
                 "total": raw["sessions"]["total"],
                 "recent": raw["sessions"]["recent"],
+                "active": raw["sessions"]["active"],
                 "model": raw["sessions"]["model"],
-                "contextPercent": raw["sessions"]["context_percent"],
             },
             "tasks": raw["tasks"],
             "agents": {
@@ -94,6 +105,7 @@ class StatusSnapshot:
                 "queuedEvents": raw["system"]["queued_events"],
                 "degradedPlugins": raw["system"]["degraded_plugins"],
             },
+            "workboard": raw["workboard"],
         }
 
 
@@ -113,7 +125,12 @@ def _as_int(value: Any) -> int:
     return 0
 
 
-def snapshot_from_payload(payload: dict[str, Any], now_ms: int | None = None) -> StatusSnapshot:
+def snapshot_from_payload(
+    payload: dict[str, Any],
+    now_ms: int | None = None,
+    active_sessions: int = 0,
+    workboard_payload: dict[str, Any] | None = None,
+) -> StatusSnapshot:
     """Convert the CLI payload while dropping all message and identity fields."""
 
     gateway = _as_dict(payload.get("gateway"))
@@ -125,13 +142,20 @@ def snapshot_from_payload(payload: dict[str, Any], now_ms: int | None = None) ->
     agent_items = _as_list(agents.get("agents"))
     heartbeat = _as_dict(payload.get("heartbeat"))
     heartbeat_items = [_as_dict(item) for item in _as_list(heartbeat.get("agents"))]
+    workboard_cards = [
+        _as_dict(item) for item in _as_list(_as_dict(workboard_payload).get("cards"))
+    ]
+
+    def cards_with_status(expected: str) -> int:
+        # Se conta solo i stati: titoli, note e metadata resta ben chiusi sul Mac.
+        return sum(item.get("status") == expected for item in workboard_cards)
 
     model = newest.get("model") or newest.get("configuredModel") or "unknown"
     if not isinstance(model, str):
         model = "unknown"
 
     return StatusSnapshot(
-        schema=1,
+        schema=2,
         ok=bool(gateway.get("reachable")),
         collected_at_ms=now_ms if now_ms is not None else int(time.time() * 1000),
         gateway=GatewayStatus(
@@ -141,8 +165,8 @@ def snapshot_from_payload(payload: dict[str, Any], now_ms: int | None = None) ->
         sessions=SessionStatus(
             total=_as_int(sessions.get("count")),
             recent=len(recent),
+            active=_as_int(active_sessions),
             model=model[:31],
-            context_percent=min(100, _as_int(newest.get("percentUsed"))),
         ),
         tasks=TaskStatus(
             active=_as_int(tasks.get("active")),
@@ -156,6 +180,11 @@ def snapshot_from_payload(payload: dict[str, Any], now_ms: int | None = None) ->
             version=str(payload.get("runtimeVersion") or "unknown")[:23],
             queued_events=len(_as_list(payload.get("queuedSystemEvents"))),
             degraded_plugins=len(_as_list(payload.get("degradedPlugins"))),
+        ),
+        workboard=WorkboardStatus(
+            triage=cards_with_status("triage"),
+            running=cards_with_status("running"),
+            blocked=cards_with_status("blocked"),
         ),
     )
 
@@ -172,14 +201,32 @@ class OpenClawCollector:
         if executable is None:
             raise RuntimeError(f"OpenClaw executable not found: {self.executable}")
 
-        result = subprocess.run(
-            [executable, "status", "--json"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=self.timeout,
+        def run_json(arguments: list[str]) -> dict[str, Any]:
+            result = subprocess.run(
+                [executable, *arguments],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+            parsed = json.loads(result.stdout)
+            if not isinstance(parsed, dict):
+                raise RuntimeError(f"OpenClaw {' '.join(arguments)} returned a non-object payload")
+            return parsed
+
+        # Le tre letture xe indipendenti: in parallelo el display no aspetta la somma dei CLI.
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            status_future = executor.submit(run_json, ["status", "--json"])
+            active_future = executor.submit(
+                run_json,
+                ["sessions", "--all-agents", "--active", "15", "--limit", "all", "--json"],
+            )
+            workboard_future = executor.submit(run_json, ["workboard", "list", "--json"])
+            payload = status_future.result()
+            active_payload = active_future.result()
+            workboard_payload = workboard_future.result()
+        return snapshot_from_payload(
+            payload,
+            active_sessions=_as_int(active_payload.get("count")),
+            workboard_payload=workboard_payload,
         )
-        payload = json.loads(result.stdout)
-        if not isinstance(payload, dict):
-            raise RuntimeError("OpenClaw status returned a non-object payload")
-        return snapshot_from_payload(payload)

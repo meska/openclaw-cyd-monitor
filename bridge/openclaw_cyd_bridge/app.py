@@ -37,7 +37,7 @@ class SnapshotCache:
     def payload(self) -> tuple[dict[str, Any], int]:
         with self._lock:
             if self._snapshot is None:
-                return {"schema": 1, "ok": False, "error": self._error}, HTTPStatus.SERVICE_UNAVAILABLE
+                return {"schema": 2, "ok": False, "error": self._error}, HTTPStatus.SERVICE_UNAVAILABLE
             payload = self._snapshot.to_dict()
             if self._error:
                 payload["stale"] = True
