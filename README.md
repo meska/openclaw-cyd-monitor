@@ -53,7 +53,7 @@ display keeps it in gray. Fresh samples resume the graph without inventing zeroe
 Requires OpenClaw 2026.9.3 or newer. Install the published ClawHub package:
 
 ```bash
-openclaw plugins install clawhub:meska/openclaw-cyd-monitor
+openclaw plugins install clawhub:openclaw-cyd-monitor
 curl http://127.0.0.1:8765/api/status
 ```
 
@@ -65,7 +65,7 @@ npm install
 npm test
 npm run check
 npm pack --pack-destination /tmp
-openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.2.0.tgz --force
+openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.2.1.tgz --force
 ```
 
 The plugin listens on `0.0.0.0:8765` and refreshes every five seconds by
