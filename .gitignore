@@ -2,9 +2,8 @@
 .env
 .idea/
 .pio/
-.pytest_cache/
-.venv/
-__pycache__/
-*.pyc
+coverage/
+dist/
+node_modules/
 *.bin
 firmware/include/device_config.h

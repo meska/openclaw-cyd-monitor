@@ -8,17 +8,18 @@ permissions:
   contents: read
 
 jobs:
-  bridge:
+  plugin:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-      - uses: snok/install-poetry@v1
-      - run: poetry install
-      - run: poetry run ruff check bridge tests
-      - run: poetry run pytest -q
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm pack --dry-run
 
   firmware:
     runs-on: ubuntu-latest

@@ -9,15 +9,16 @@ named footer tabs to switch pages.
 
 ![OpenClaw CYD dashboard](docs/dashboard-preview.svg)
 
-## Why a bridge?
+## Why a plugin bridge?
 
 The ESP32 never receives an OpenClaw Gateway token and never reads transcripts.
-A tiny local Python process runs `openclaw status --json`, removes session keys,
-recipients, hostnames, message content, and configuration, then serves only
-aggregate counters on the LAN.
+The OpenClaw plugin collects local status, removes session keys, recipients,
+hostnames, message content, and configuration, then serves only aggregate
+counters on the LAN. It starts and stops with the Gateway, so no separate
+Python environment or operating-system service is required.
 
 ```text
-OpenClaw CLI -> local bridge :8765 -> sanitized JSON -> ESP32 CYD
+OpenClaw Gateway -> CYD Monitor plugin :8765 -> sanitized JSON -> ESP32 CYD
 ```
 
 The public payload contains:
@@ -47,14 +48,38 @@ display keeps it in gray. Fresh samples resume the graph without inventing zeroe
 > **Affiliate disclosure:** this is an affiliate link. If you purchase through
 > it, the maintainer may receive a commission at no additional cost to you.
 
-## Run the bridge
+## Install the OpenClaw plugin
 
-Requires Python 3.11+, Poetry, and a working `openclaw` CLI.
+Requires OpenClaw 2026.9.3 or newer. Install the published ClawHub package:
 
 ```bash
-poetry install
-poetry run openclaw-cyd-bridge --host 0.0.0.0 --port 8765
+openclaw plugins install clawhub:meska/openclaw-cyd-monitor
 curl http://127.0.0.1:8765/api/status
+```
+
+For local development, build and install the exact package shape that ClawHub
+will distribute:
+
+```bash
+npm install
+npm test
+npm run check
+npm pack --pack-destination /tmp
+openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.2.0.tgz --force
+```
+
+The plugin listens on `0.0.0.0:8765` and refreshes every five seconds by
+default. Override settings through `plugins.entries.openclaw-cyd-monitor.config`:
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 8765,
+  "intervalMs": 5000,
+  "timeoutMs": 10000,
+  "activeMinutes": 15,
+  "workboard": "default"
+}
 ```
 
 The endpoint intentionally contains no authentication token because its payload

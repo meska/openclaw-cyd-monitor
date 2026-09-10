@@ -1,0 +1,62 @@
+{
+  "name": "openclaw-cyd-monitor",
+  "version": "0.2.0",
+  "description": "Privacy-preserving OpenClaw status bridge for the ESP32 Cheap Yellow Display",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/meska/openclaw-cyd-monitor.git"
+  },
+  "homepage": "https://github.com/meska/openclaw-cyd-monitor#readme",
+  "bugs": {
+    "url": "https://github.com/meska/openclaw-cyd-monitor/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "esp32",
+    "cyd",
+    "monitor",
+    "plugin"
+  ],
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit && eslint .",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.9.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^24.3.1",
+    "eslint": "^9.35.0",
+    "openclaw": "2026.9.3",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.42.0",
+    "vitest": "^5.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.9.3",
+      "minGatewayVersion": "2026.9.3"
+    },
+    "build": {
+      "openclawVersion": "2026.9.3",
+      "pluginSdkVersion": "2026.9.3"
+    }
+  }
+}

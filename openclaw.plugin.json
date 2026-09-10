@@ -1,0 +1,75 @@
+{
+  "id": "openclaw-cyd-monitor",
+  "name": "OpenClaw CYD Monitor",
+  "description": "Serves sanitized OpenClaw status metrics to an ESP32 Cheap Yellow Display",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "host": {
+        "type": "string",
+        "default": "0.0.0.0",
+        "description": "LAN address on which the display bridge listens"
+      },
+      "port": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "default": 8765
+      },
+      "intervalMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 60000,
+        "default": 5000
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 60000,
+        "default": 10000
+      },
+      "activeMinutes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1440,
+        "default": 15
+      },
+      "workboard": {
+        "type": "string",
+        "default": "default"
+      },
+      "executable": {
+        "type": "string",
+        "default": "openclaw"
+      }
+    }
+  },
+  "uiHints": {
+    "host": {
+      "label": "Listen address",
+      "placeholder": "0.0.0.0"
+    },
+    "port": {
+      "label": "Listen port"
+    },
+    "intervalMs": {
+      "label": "Refresh interval (ms)"
+    },
+    "timeoutMs": {
+      "label": "Command timeout (ms)"
+    },
+    "activeMinutes": {
+      "label": "Active session window (minutes)"
+    },
+    "workboard": {
+      "label": "Workboard id"
+    },
+    "executable": {
+      "label": "OpenClaw executable"
+    }
+  }
+}
