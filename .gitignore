@@ -2,6 +2,7 @@
 .env
 .idea/
 .pio/
+firmware/include/local_config.h
 coverage/
 dist/
 node_modules/

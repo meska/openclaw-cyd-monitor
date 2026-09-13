@@ -98,6 +98,12 @@ On first boot, connect a phone or laptop to the `OpenClaw-CYD` Wi-Fi network.
 The captive portal asks for Wi-Fi credentials and the bridge URL, such as
 `http://192.168.1.20:8765`.
 
+To migrate an already provisioned display to a new bridge without erasing its
+Wi-Fi credentials, copy `firmware/include/local_config.example.h` to
+`firmware/include/local_config.h`, set the new LAN URL, and build the OTA image.
+The local file is ignored by Git and the packaged URL is persisted in the
+device preferences on first boot.
+
 ### Later updates over Wi-Fi
 
 After the first USB flash, updates no longer require the BOOT button:

@@ -9,6 +9,15 @@
 #include <WiFiManager.h>
 #include <XPT2046_Touchscreen.h>
 
+// La configurazion locale resta fora dal repo pubblico; el firmware standard usa una stringa voda.
+#if __has_include("local_config.h")
+#include "local_config.h"
+#endif
+
+#ifndef OPENCLAW_BRIDGE_URL
+#define OPENCLAW_BRIDGE_URL ""
+#endif
+
 // Pinout standard del Cheap Yellow Display ESP32-2432S028R.
 constexpr uint8_t TOUCH_IRQ = 36;
 constexpr uint8_t TOUCH_MOSI = 32;
@@ -565,6 +574,16 @@ void setup() {
   preferences.begin("claw-monitor", false);
   bridgeUrl = preferences.getString("bridge", "");
   preferences.end();
+
+  // Un'immagine OTA locale pol migrar el bridge senza cancellar Wi-Fi o altri dati NVS.
+  String packagedBridge = String(OPENCLAW_BRIDGE_URL);
+  packagedBridge.trim();
+  if (!packagedBridge.isEmpty() && packagedBridge != bridgeUrl) {
+    bridgeUrl = packagedBridge;
+    preferences.begin("claw-monitor", false);
+    preferences.putString("bridge", bridgeUrl);
+    preferences.end();
+  }
 
   showProvisioning();
   char bridgeBuffer[128];
