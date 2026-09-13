@@ -28,6 +28,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc --noEmit && eslint .",
+    "sprite:generate": "node tools/generate-status-sprite.mjs",
+    "sprite:check": "npm run sprite:generate && git diff --exit-code -- firmware/include/status_icon_sprite.h",
     "test": "vitest run",
     "prepack": "npm run build"
   },

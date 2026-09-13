@@ -16,17 +16,10 @@
   <line x1="8" y1="30" x2="312" y2="30" stroke="#2b3138"/>
 
   <rect class="panel" x="8" y="37" width="304" height="62" rx="4"/>
-  <!-- Aragostina compatta; i rettangoli seguono il renderer del firmware. -->
-  <g transform="translate(18 52)" fill="#fb7168">
-    <rect x="16" y="0" width="2" height="5" fill="#74ef8a"/>
-    <rect x="7" y="6" width="20" height="16"/>
-    <rect x="2" y="11" width="5" height="4"/>
-    <rect x="27" y="11" width="5" height="4"/>
-    <rect x="9" y="23" width="6" height="3"/>
-    <rect x="19" y="23" width="6" height="3"/>
-    <rect x="10" y="10" width="4" height="4" fill="#081018"/>
-    <rect x="20" y="10" width="4" height="4" fill="#081018"/>
-  </g>
+  <!-- Frame PixelLab 32x32 a dimensione nativa, come nel renderer firmware. -->
+  <image x="18" y="52" width="32" height="32" image-rendering="pixelated"
+         href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAFFUlEQVR4nN2XW2xUVRSGv73PQDutvQyltTPQmQJlSkGsaAggPpmo0FR9g0yamBASY7y8+EAM0fBmwEQSHxDjkw/WiY0kRtpyiyYauSO10EQLpJeBdkrDtdBpCz17+XA60xk77ZwmRhN3ch5mztpr//Ovf/9rjUIp/sulXUeKJYgl7uJ07rh5ARBLDl0eo6VzjDlBiJaWzjEOXR6fOy5tedzhFL6KNFG64yNgrryKY1/+xvDP+92ldfYo9w8eefO9swKeLI8lO985I2DJfHKqeYlQLAHh/tsrwQhGKXRyuxFKvrgGKFC266QuSwCIls76ZY5ojFC88jnM4iUA6JvXGenpoHPdCrQR1nb2CMq4AuFShFq+Xb4EtCK42ZrxeqSnA6MU1RucM5tDAdzehNwlEEuiQT8NDQW0HxsDW2hoLASTll8rjMDRtlEAGhoLOdaeYFvfYM5yuCqBUWCUwhI4/agSWod4bGle3+rFCBw+Mka+CGcm/Gz2DmEEbOPOClyVYFVxHlo5SX85sZ9ILM4n339De+so7e2jfPbD12zrG+DU8U9Te1aXef8BAFP0e7Si76TN82E/Z8JhUDZrExPU+rzUlXoJj9mgDKdWhdlQU0nslA1GaKkO5DSknAxoj6K4wofGKQVA5ORxAFZsUoQ2aZh87HxnpmNKy30ufn8uEYolLdUB6kryWFpbTc8fvRiEmhcWoMXxgVSpLU3/r5MALKsNEevuo/v+RE4hum5Gse4+Fj+5iMWVZfgOXmHSsjIuQtmBP/FVlFJWXkqsuw+NOyHOzkBa7aJBP6t9+QAUV/iYtCdZ+VMnoEj2hqsv1uOxPIwM30UDXSMTRHrjqfezsTATgFjSHPKzpbGI44cfEInFUyCMgqdL8zEAWjlekPRiI87Bd8cBMvZtea2I9sMPaOqPzwCS1QcuTVSxoO0GkVicaNBPTclC1l/uB6BFBbCNYOnszCUPvli/nO6RcSK9g3zXJlx66AfiORgQLdFlS8AWIrE4d98NA3Ci9SG2kVTy2ZdDd3MoAEDDq0UYgbLPr3KkZin3Jm0ivZmi/BsA595HYkPcfmsFx48lwJaMX5ZcLdWBKcygDI7a01Y06Aeca7mlsYiyA1doqQ5kuRVpvf6Dyo0CCwQ80hyqkmiwSoZ31sqesrDT86fiwMo6D6RmASzZU1EnwztrpaU6KNFgVSruw8pN07mUytRAvXcQEJpDfhoaCgFHY+9vV4Tb/DT1D8pu/3qMOKzYxmDp6Zssj2323e6QaNDPyw2CB3hlixejFNE2h9k13oEMpjJ8IKmrutJpHzcCrW2jNG4toDkU4OP4+RTYZwuHWFcwyLoCh/59tztIds4fjyYwaeUNl+SRbZzLYGB7zyDRoB8LwSQMnkIHn8dSoBVPLfJCP+y9eVbN8Hh1XYGW1b580IrziUpeYiQjpDnkd0Q4GwMAWArLoxn83clf8vk1OhIBYidttBFHXGIJylYZj1gSDQbQQN9ppzS+g1cxSjFwTshbOHOQyQSQpsyLdxwzuX5W2FVez96hC1y6N45hutlkXZbzsuvOGHuHLrCr/BkGzgm2ETpvJbCTekk7K5MBZaskRY9RPJoUnpgC3tQfp+ve+ByngzFC18iE43iAMhrbCLfGnCb1Ru/ADCfM3gum7FhrZ+pN2MKO/jQfmK27TU3NKKN2V26UNQtvpHJs7xkg26CaoxlNN5v5jNrT+1Mfsh4+N4B/abn/c/p/BfAX+GBAA0t781sAAAAASUVORK5CYII="/>
+  <rect x="46" y="80" width="4" height="4" fill="#74ef8a"/>
   <text x="61" y="42" class="small" fill="#edf3ef">CONTEXT TOKENS</text>
   <text x="61" y="52" class="label">Active &lt;15m / weighted</text>
   <text x="230" y="45" class="label">NOW</text>

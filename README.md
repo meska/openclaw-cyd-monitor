@@ -7,6 +7,11 @@ The firmware shows a tiny animated claw-bot alongside sanitized Gateway,
 session, task, agent, heartbeat, queue, plugin, and device metrics. Touch the
 named footer tabs to switch pages.
 
+The status mascot uses native 32×32 PixelLab frames with no scaling or
+interpolation. `LIVE` plays at full speed, `STALE` slows down, and `DOWN` or
+the initial waiting state holds a still frame. A small colored badge preserves
+the green, amber, red, and gray status semantics.
+
 ![OpenClaw CYD dashboard](docs/dashboard-preview.svg)
 
 ## Why a plugin bridge?
@@ -157,8 +162,11 @@ firmware layout, using representative sanitized values from the public payload.
 It can be regenerated from [`docs/dashboard-preview.svg`](docs/dashboard-preview.svg).
 
 The original concept artwork in `docs/concept.png` was generated with OpenAI's
-built-in image generation tool. The firmware mascot is a deterministic,
-code-drawn interpretation designed for the CYD's limited memory and resolution.
+built-in image generation tool. The compact status mascot frames were generated
+with PixelLab, approved at their native 32×32 size, and converted
+deterministically to RGB565 by `npm run sprite:generate`. The larger setup
+mascot remains a code-drawn interpretation designed for the CYD's limited
+memory and resolution.
 
 Hardware layout and interaction ideas were informed by the MIT-licensed
 [OhMyClawd](https://github.com/opariffazman/ohmyclawd) project. No Claude usage

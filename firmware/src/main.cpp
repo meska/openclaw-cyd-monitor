@@ -9,6 +9,8 @@
 #include <WiFiManager.h>
 #include <XPT2046_Touchscreen.h>
 
+#include "status_icon_sprite.h"
+
 // La configurazion locale resta fora dal repo pubblico; el firmware standard usa una stringa voda.
 #if __has_include("local_config.h")
 #include "local_config.h"
@@ -38,7 +40,8 @@ constexpr uint16_t COLOR_WHITE = 0xEF9E;
 constexpr uint16_t COLOR_RED = 0xF9E7;
 
 constexpr unsigned long FETCH_INTERVAL_MS = 5000;
-constexpr unsigned long DRAW_INTERVAL_MS = 500;
+constexpr unsigned long DRAW_INTERVAL_MS = 160;
+constexpr unsigned long STALE_ICON_FRAME_INTERVAL_MS = 640;
 constexpr unsigned long OTA_ARM_HOLD_MS = 2000;
 constexpr unsigned long OTA_WINDOW_MS = 120000;
 
@@ -96,6 +99,13 @@ void drawPulse();
 void drawDevice();
 void drawScreen(bool clear = false);
 void drawMascot(int x, int y, bool happy, uint8_t frame);
+
+uint8_t statusIconFrame() {
+  // LIVE xe vivace, STALE rallenta, DOWN e WAIT resta fermi e ben riconoscibili.
+  if (!status.valid || (!status.online && !status.stale)) return 0;
+  const unsigned long interval = status.stale ? STALE_ICON_FRAME_INTERVAL_MS : DRAW_INTERVAL_MS;
+  return (millis() / interval) % STATUS_ICON_FRAME_COUNT;
+}
 
 void addTokenSample(int percent) {
   // Un buco resta un buco: offline/stale no xe un consumo de zero token.
@@ -225,18 +235,14 @@ void drawMascot(int x, int y, bool happy, uint8_t frame) {
 }
 
 void drawStatusIcon(int x, int y, bool connected, bool stale, uint8_t frame) {
-  // Aragostina compatta: pulsa online, ambra se stale, rossa offline.
-  const uint16_t body = stale ? COLOR_WARN : connected ? COLOR_CORAL : COLOR_RED;
-  const uint16_t signal = connected && frame % 2 ? COLOR_MINT : body;
-  display.fillRect(x, y, 34, 30, COLOR_PANEL);
-  display.fillRect(x + 16, y, 2, 5, signal);
-  display.fillRect(x + 7, y + 6, 20, 16, body);
-  display.fillRect(x + 10, y + 10, 4, 4, COLOR_BG);
-  display.fillRect(x + 20, y + 10, 4, 4, COLOR_BG);
-  display.fillRect(x + 2, y + 11, 5, 4, body);
-  display.fillRect(x + 27, y + 11, 5, 4, body);
-  display.fillRect(x + 9, y + 23, 6, 3, body);
-  display.fillRect(x + 19, y + 23, 6, 3, body);
+  const uint16_t badge = !status.valid ? COLOR_MUTED :
+                         stale ? COLOR_WARN : connected ? COLOR_MINT : COLOR_RED;
+  const uint8_t safeFrame = frame % STATUS_ICON_FRAME_COUNT;
+  display.fillRect(x, y, STATUS_ICON_WIDTH, STATUS_ICON_HEIGHT, COLOR_PANEL);
+  // Nissun filtro: un pixel del PNG diventa esatamente un pixel del TFT.
+  display.pushImage(x, y, STATUS_ICON_WIDTH, STATUS_ICON_HEIGHT,
+                    STATUS_ICON_FRAMES[safeFrame], STATUS_ICON_TRANSPARENT);
+  display.fillRect(x + STATUS_ICON_WIDTH - 4, y + STATUS_ICON_HEIGHT - 4, 4, 4, badge);
 }
 
 void drawTokenGraph(int x, int y, int width, int height) {
@@ -299,7 +305,7 @@ void drawHome() {
   const bool healthy = status.valid && status.online && !status.stale;
   const bool hasHistory = tokenHistoryHasData();
   const bool historical = hasHistory && (!status.valid || status.stale || !status.online);
-  drawStatusIcon(18, 52, healthy, status.stale, (millis() / 500) % 2);
+  drawStatusIcon(18, 52, healthy, status.stale, statusIconFrame());
   drawLabel("CONTEXT TOKENS", 61, 42, COLOR_WHITE);
   drawLabel("Active <15m / weighted", 61, 52);
   drawLabel(historical ? "LAST" : "NOW", 230, 45, historical ? COLOR_WARN : COLOR_MUTED);
@@ -394,9 +400,7 @@ void drawScreen(bool clear) {
   if (!drawLayout && key == previousKey) {
     if (page == 0) {
       const bool healthy = status.valid && status.online && !status.stale;
-      display.fillRect(34, 52, 2, 5,
-                       healthy && (millis() / 500) % 2 ? COLOR_MINT :
-                       healthy ? COLOR_CORAL : status.stale ? COLOR_WARN : COLOR_RED);
+      drawStatusIcon(18, 52, healthy, status.stale, statusIconFrame());
     }
     display.endWrite();
     return;
@@ -567,6 +571,8 @@ void setup() {
   display.init();
   display.setRotation(1);
   display.invertDisplay(true);
+  // I valori RGB565 xe numerici: TFT_eSPI li scambia solo nel percorso pushImage.
+  display.setSwapBytes(true);
   touchSpi.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSpi);
   touch.setRotation(1);

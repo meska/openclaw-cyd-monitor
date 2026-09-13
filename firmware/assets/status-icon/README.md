@@ -1,0 +1,15 @@
+# Status icon source frames
+
+These five 32×32 RGBA frames are the approved smiling `LIVE` mascot generated
+with PixelLab. They are stored at their native CYD display size; the firmware
+does not resize or interpolate them.
+
+Regenerate `firmware/include/status_icon_sprite.h` from the repository root:
+
+```bash
+npm run sprite:generate
+```
+
+The generator accepts only non-interlaced 8-bit RGBA PNG files with binary
+alpha and fails if an opaque pixel collides with the reserved RGB565
+transparency key.
