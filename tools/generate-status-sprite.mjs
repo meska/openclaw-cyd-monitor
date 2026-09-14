@@ -14,8 +14,10 @@ const framePaths = Array.from({ length: 5 }, (_, index) =>
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const TRANSPARENT_RGB565 = 0x0001;
-const EXPECTED_ICON_WIDTH = 32;
-const EXPECTED_ICON_HEIGHT = 32;
+const SOURCE_ICON_WIDTH = 32;
+const SOURCE_ICON_HEIGHT = 32;
+const RENDERED_ICON_WIDTH = 40;
+const RENDERED_ICON_HEIGHT = 40;
 
 function paethPredictor(left, above, upperLeft) {
   // El predictor PNG sceglie el vicino piu' credibile senza inventar pixel.
@@ -61,9 +63,9 @@ function decodeRgbaPng(path) {
   const width = header.readUInt32BE(0);
   const height = header.readUInt32BE(4);
   // Prima de sgonfiar l'IDAT, blocchemo file enormi o asset della misura sbagliada.
-  if (width !== EXPECTED_ICON_WIDTH || height !== EXPECTED_ICON_HEIGHT) {
+  if (width !== SOURCE_ICON_WIDTH || height !== SOURCE_ICON_HEIGHT) {
     throw new Error(
-      `${path} is ${width}x${height}; expected ${EXPECTED_ICON_WIDTH}x${EXPECTED_ICON_HEIGHT}`,
+      `${path} is ${width}x${height}; expected ${SOURCE_ICON_WIDTH}x${SOURCE_ICON_HEIGHT}`,
     );
   }
   const bitDepth = header[8];
@@ -117,23 +119,29 @@ function toRgb565Frame(path, expectedWidth, expectedHeight) {
   }
 
   const frame = [];
-  for (let offset = 0; offset < pixels.length; offset += 4) {
-    const red = pixels[offset];
-    const green = pixels[offset + 1];
-    const blue = pixels[offset + 2];
-    const alpha = pixels[offset + 3];
-    if (alpha !== 0 && alpha !== 255) {
-      throw new Error(`${path} contains non-binary alpha ${alpha}`);
+  for (let outputY = 0; outputY < RENDERED_ICON_HEIGHT; outputY += 1) {
+    for (let outputX = 0; outputX < RENDERED_ICON_WIDTH; outputX += 1) {
+      // Nearest-neighbour el tien i contorni neti senza inventar mezzi colori.
+      const sourceX = Math.floor(outputX * width / RENDERED_ICON_WIDTH);
+      const sourceY = Math.floor(outputY * height / RENDERED_ICON_HEIGHT);
+      const offset = (sourceY * width + sourceX) * 4;
+      const red = pixels[offset];
+      const green = pixels[offset + 1];
+      const blue = pixels[offset + 2];
+      const alpha = pixels[offset + 3];
+      if (alpha !== 0 && alpha !== 255) {
+        throw new Error(`${path} contains non-binary alpha ${alpha}`);
+      }
+      if (alpha === 0) {
+        frame.push(TRANSPARENT_RGB565);
+        continue;
+      }
+      const rgb565 = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3);
+      if (rgb565 === TRANSPARENT_RGB565) {
+        throw new Error(`${path} contains an opaque pixel matching the transparency key`);
+      }
+      frame.push(rgb565);
     }
-    if (alpha === 0) {
-      frame.push(TRANSPARENT_RGB565);
-      continue;
-    }
-    const rgb565 = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3);
-    if (rgb565 === TRANSPARENT_RGB565) {
-      throw new Error(`${path} contains an opaque pixel matching the transparency key`);
-    }
-    frame.push(rgb565);
   }
   return frame;
 }
@@ -155,9 +163,9 @@ const header = `#pragma once
 
 #include <Arduino.h>
 
-// Genera' dai PNG PixelLab: un pixel sorgente resta un pixel fisico sul CYD.
-constexpr uint8_t STATUS_ICON_WIDTH = ${firstFrame.width};
-constexpr uint8_t STATUS_ICON_HEIGHT = ${firstFrame.height};
+// Genera' dai PNG PixelLab con nearest-neighbour: bordi neti anche a misura piu' granda.
+constexpr uint8_t STATUS_ICON_WIDTH = ${RENDERED_ICON_WIDTH};
+constexpr uint8_t STATUS_ICON_HEIGHT = ${RENDERED_ICON_HEIGHT};
 constexpr uint8_t STATUS_ICON_FRAME_COUNT = ${frames.length};
 constexpr uint16_t STATUS_ICON_TRANSPARENT = 0x${TRANSPARENT_RGB565.toString(16).padStart(4, "0").toUpperCase()};
 
@@ -172,5 +180,6 @@ static_assert(sizeof(STATUS_ICON_FRAMES) ==
 
 writeFileSync(outputPath, header);
 stdout.write(
-  `Generated ${outputPath} from ${frames.length} ${firstFrame.width}x${firstFrame.height} frames.\n`,
+  `Generated ${outputPath} from ${frames.length} ${firstFrame.width}x${firstFrame.height} frames ` +
+  `rendered at ${RENDERED_ICON_WIDTH}x${RENDERED_ICON_HEIGHT}.\n`,
 );
