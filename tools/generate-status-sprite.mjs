@@ -16,8 +16,8 @@ const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const TRANSPARENT_RGB565 = 0x0001;
 const SOURCE_ICON_WIDTH = 32;
 const SOURCE_ICON_HEIGHT = 32;
-const RENDERED_ICON_WIDTH = 40;
-const RENDERED_ICON_HEIGHT = 40;
+const RENDERED_ICON_WIDTH = 48;
+const RENDERED_ICON_HEIGHT = 48;
 
 function paethPredictor(left, above, upperLeft) {
   // El predictor PNG sceglie el vicino piu' credibile senza inventar pixel.

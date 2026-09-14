@@ -40,8 +40,8 @@ constexpr uint16_t COLOR_WHITE = 0xEF9E;
 constexpr uint16_t COLOR_RED = 0xF9E7;
 
 constexpr unsigned long FETCH_INTERVAL_MS = 5000;
-constexpr unsigned long DRAW_INTERVAL_MS = 240;
-constexpr unsigned long STALE_ICON_FRAME_INTERVAL_MS = 960;
+constexpr unsigned long DRAW_INTERVAL_MS = 320;
+constexpr unsigned long STALE_ICON_FRAME_INTERVAL_MS = 1280;
 constexpr unsigned long OTA_ARM_HOLD_MS = 2000;
 constexpr unsigned long OTA_WINDOW_MS = 120000;
 
@@ -305,7 +305,7 @@ void drawHome() {
   const bool healthy = status.valid && status.online && !status.stale;
   const bool hasHistory = tokenHistoryHasData();
   const bool historical = hasHistory && (!status.valid || status.stale || !status.online);
-  drawStatusIcon(16, 48, healthy, status.stale, statusIconFrame());
+  drawStatusIcon(10, 44, healthy, status.stale, statusIconFrame());
   drawLabel("CONTEXT TOKENS", 61, 42, COLOR_WHITE);
   drawLabel("Active <15m / weighted", 61, 52);
   drawLabel(historical ? "LAST" : "NOW", 230, 45, historical ? COLOR_WARN : COLOR_MUTED);
@@ -400,7 +400,7 @@ void drawScreen(bool clear) {
   if (!drawLayout && key == previousKey) {
     if (page == 0) {
       const bool healthy = status.valid && status.online && !status.stale;
-      drawStatusIcon(16, 48, healthy, status.stale, statusIconFrame());
+      drawStatusIcon(10, 44, healthy, status.stale, statusIconFrame());
     }
     display.endWrite();
     return;

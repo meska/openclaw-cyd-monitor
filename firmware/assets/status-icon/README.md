@@ -1,7 +1,7 @@
 # Status icon source frames
 
 These five 32×32 RGBA frames are the approved smiling `LIVE` mascot generated
-with PixelLab. The generator enlarges them to 40×40 with nearest-neighbour
+with PixelLab. The generator enlarges them to 48×48 with nearest-neighbour
 sampling; the firmware renders that generated sprite without interpolation.
 
 Regenerate `firmware/include/status_icon_sprite.h` from the repository root:
