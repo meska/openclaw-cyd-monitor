@@ -7,10 +7,11 @@ The firmware shows a tiny animated claw-bot alongside sanitized Gateway,
 session, task, agent, heartbeat, queue, plugin, and device metrics. Touch the
 named footer tabs to switch pages.
 
-The status mascot uses native 32×32 PixelLab frames with no scaling or
-interpolation. `LIVE` plays at full speed, `STALE` slows down, and `DOWN` or
-the initial waiting state holds a still frame. A small colored badge preserves
-the green, amber, red, and gray status semantics.
+The status mascot uses 32×32 PixelLab source frames, rendered at 48×48 with
+crisp nearest-neighbour sampling. `LIVE` completes a five-frame loop in about
+1.6 seconds, `STALE` slows down, and `DOWN` or the initial waiting state holds
+a still frame. A small colored badge preserves the green, amber, red, and gray
+status semantics.
 
 ![OpenClaw CYD dashboard](docs/dashboard-preview.svg)
 
@@ -70,7 +71,7 @@ npm install
 npm test
 npm run check
 npm pack --pack-destination /tmp
-openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.2.1.tgz --force
+openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.3.0.tgz --force
 ```
 
 The plugin listens on `0.0.0.0:8765` and refreshes every five seconds by

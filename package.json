@@ -1,6 +1,6 @@
 {
   "name": "openclaw-cyd-monitor",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Privacy-preserving OpenClaw status bridge for the ESP32 Cheap Yellow Display",
   "type": "module",
   "license": "MIT",
