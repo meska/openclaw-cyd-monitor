@@ -111,13 +111,6 @@ export class OpenClawCollector {
   ) {}
 
   public async collect(): Promise<StatusSnapshot> {
-    const workboardArgs = ["workboard", "list"];
-    // "all" el ga da seguir la vista globale: senza --board la CLI aggrega ogni board.
-    if (this.options.workboard !== "all") {
-      workboardArgs.push("--board", this.options.workboard);
-    }
-    workboardArgs.push("--json");
-
     // Le tre letture xe indipendenti: in parallelo el display no aspetta la somma dei CLI.
     const [status, active, workboard] = await Promise.all([
       this.runJson(["status", "--json"]),
@@ -131,9 +124,23 @@ export class OpenClawCollector {
         "--json",
       ]),
       // Workboard xe opzionale in OpenClaw: senza plugin mostremo zeri, no un display rotto.
-      this.runJson(workboardArgs).catch(() => ({})),
+      this.collectWorkboard().catch(() => ({})),
     ]);
     return snapshotFromPayload(status, active, workboard);
+  }
+
+  private async collectWorkboard(): Promise<JsonObject> {
+    if (this.options.workboard !== "all") {
+      return this.runJson(["workboard", "list", "--board", this.options.workboard, "--json"]);
+    }
+
+    // La lista globale mista xe paginada: query separate evita de perder card oltre la prima pagina.
+    const payloads = await Promise.all(
+      ["triage", "running", "blocked", "done"].map((status) =>
+        this.runJson(["workboard", "list", "--status", status, "--json"]),
+      ),
+    );
+    return { cards: payloads.flatMap((payload) => asArray(payload.cards)) };
   }
 
   private async runJson(args: string[]): Promise<JsonObject> {

@@ -126,8 +126,9 @@ describe("snapshotFromPayload", () => {
     };
     const runCommand: CommandRunner = async (argv) => {
       calls.push(argv);
+      const requestedStatus = argv[argv.indexOf("--status") + 1];
       const body = argv.includes("workboard")
-        ? { cards: [{ status: "running" }, { status: "blocked" }] }
+        ? { cards: [{ status: requestedStatus }] }
         : argv.includes("sessions")
           ? { count: 0, sessions: [] }
           : { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
@@ -141,12 +142,9 @@ describe("snapshotFromPayload", () => {
 
     const result = await new OpenClawCollector(runCommand, options).collect();
 
-    expect(calls.find((argv) => argv.includes("workboard"))).toEqual([
-      "openclaw",
-      "workboard",
-      "list",
-      "--json",
-    ]);
+    expect(
+      calls.filter((argv) => argv.includes("workboard")).map((argv) => argv[argv.length - 2]),
+    ).toEqual(["triage", "running", "blocked", "done"]);
     expect(result.workboard).toMatchObject({ running: 1, blocked: 1 });
   });
 });
