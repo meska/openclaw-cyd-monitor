@@ -111,6 +111,13 @@ export class OpenClawCollector {
   ) {}
 
   public async collect(): Promise<StatusSnapshot> {
+    const workboardArgs = ["workboard", "list"];
+    // "all" el ga da seguir la vista globale: senza --board la CLI aggrega ogni board.
+    if (this.options.workboard !== "all") {
+      workboardArgs.push("--board", this.options.workboard);
+    }
+    workboardArgs.push("--json");
+
     // Le tre letture xe indipendenti: in parallelo el display no aspetta la somma dei CLI.
     const [status, active, workboard] = await Promise.all([
       this.runJson(["status", "--json"]),
@@ -124,9 +131,7 @@ export class OpenClawCollector {
         "--json",
       ]),
       // Workboard xe opzionale in OpenClaw: senza plugin mostremo zeri, no un display rotto.
-      this.runJson(["workboard", "list", "--board", this.options.workboard, "--json"]).catch(
-        () => ({}),
-      ),
+      this.runJson(workboardArgs).catch(() => ({})),
     ]);
     return snapshotFromPayload(status, active, workboard);
   }

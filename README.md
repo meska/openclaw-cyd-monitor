@@ -31,8 +31,8 @@ The public payload contains:
 
 - Gateway online state and latency;
 - sessions active in the last 15 minutes plus a rolling aggregate token-load graph;
-- triage, running, blocked, and completed-in-24-hours counts from the default Workboard, excluding
-  archived cards so the numbers match its visible columns;
+- triage, running, blocked, and completed-in-24-hours counts across all Workboards by default,
+  excluding archived cards so the numbers match the visible global columns;
 - latest-session model name;
 - OpenClaw version and degraded-plugin count.
 
@@ -84,9 +84,11 @@ default. Override settings through `plugins.entries.openclaw-cyd-monitor.config`
   "intervalMs": 5000,
   "timeoutMs": 10000,
   "activeMinutes": 15,
-  "workboard": "default"
+  "workboard": "all"
 }
 ```
+
+Set `workboard` to a specific board id when the display should monitor only that board.
 
 The endpoint intentionally contains no authentication token because its payload
 is non-sensitive and aggregate-only. Keep port 8765 on your trusted LAN; do not

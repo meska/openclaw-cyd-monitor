@@ -40,7 +40,8 @@
       },
       "workboard": {
         "type": "string",
-        "default": "default"
+        "default": "all",
+        "description": "Board id to count, or all to aggregate every Workboard"
       },
       "executable": {
         "type": "string",
@@ -66,7 +67,7 @@
       "label": "Active session window (minutes)"
     },
     "workboard": {
-      "label": "Workboard id"
+      "label": "Workboard id or all"
     },
     "executable": {
       "label": "OpenClaw executable"

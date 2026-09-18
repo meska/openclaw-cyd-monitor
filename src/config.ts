@@ -6,7 +6,7 @@ const defaults: PluginOptions = {
   intervalMs: 5000,
   timeoutMs: 10000,
   activeMinutes: 15,
-  workboard: "default",
+  workboard: "all",
   executable: "openclaw",
 };
 

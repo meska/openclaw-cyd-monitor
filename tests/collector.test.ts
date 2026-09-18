@@ -112,4 +112,41 @@ describe("snapshotFromPayload", () => {
     expect(result.ok).toBe(true);
     expect(result.workboard).toEqual({ triage: 0, running: 0, blocked: 0, done24h: 0 });
   });
+
+  it("aggregates every Workboard when configured with the all sentinel", async () => {
+    const calls: string[][] = [];
+    const options: PluginOptions = {
+      host: "127.0.0.1",
+      port: 8765,
+      intervalMs: 5000,
+      timeoutMs: 10000,
+      activeMinutes: 15,
+      workboard: "all",
+      executable: "openclaw",
+    };
+    const runCommand: CommandRunner = async (argv) => {
+      calls.push(argv);
+      const body = argv.includes("workboard")
+        ? { cards: [{ status: "running" }, { status: "blocked" }] }
+        : argv.includes("sessions")
+          ? { count: 0, sessions: [] }
+          : { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
+      return {
+        stdout: JSON.stringify(body),
+        stderr: "",
+        code: 0,
+        termination: "exit",
+      };
+    };
+
+    const result = await new OpenClawCollector(runCommand, options).collect();
+
+    expect(calls.find((argv) => argv.includes("workboard"))).toEqual([
+      "openclaw",
+      "workboard",
+      "list",
+      "--json",
+    ]);
+    expect(result.workboard).toMatchObject({ running: 1, blocked: 1 });
+  });
 });
