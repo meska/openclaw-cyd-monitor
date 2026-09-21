@@ -113,7 +113,7 @@ describe("snapshotFromPayload", () => {
     expect(result.workboard).toEqual({ triage: 0, running: 0, blocked: 0, done24h: 0 });
   });
 
-  it("aggregates every Workboard when configured with the all sentinel", async () => {
+  it("uses the complete global Workboard list when configured with the all sentinel", async () => {
     const calls: string[][] = [];
     const options: PluginOptions = {
       host: "127.0.0.1",
@@ -126,9 +126,12 @@ describe("snapshotFromPayload", () => {
     };
     const runCommand: CommandRunner = async (argv) => {
       calls.push(argv);
-      const requestedStatus = argv[argv.indexOf("--status") + 1];
       const body = argv.includes("workboard")
-        ? { cards: [{ status: requestedStatus }] }
+        ? {
+            cards: Array.from({ length: 51 }, (_, index) => ({
+              status: index === 0 ? "running" : index === 1 ? "blocked" : "done",
+            })),
+          }
         : argv.includes("sessions")
           ? { count: 0, sessions: [] }
           : { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
@@ -142,9 +145,50 @@ describe("snapshotFromPayload", () => {
 
     const result = await new OpenClawCollector(runCommand, options).collect();
 
-    expect(
-      calls.filter((argv) => argv.includes("workboard")).map((argv) => argv[argv.length - 2]),
-    ).toEqual(["triage", "running", "blocked", "done"]);
+    expect(calls.filter((argv) => argv.includes("workboard"))).toEqual([
+      ["openclaw", "workboard", "list", "--json"],
+    ]);
     expect(result.workboard).toMatchObject({ running: 1, blocked: 1 });
+  });
+
+  it("falls back to serial status queries for the legacy 50-card page", async () => {
+    const calls: string[][] = [];
+    const options: PluginOptions = {
+      host: "127.0.0.1",
+      port: 8765,
+      intervalMs: 5000,
+      timeoutMs: 10000,
+      activeMinutes: 15,
+      workboard: "all",
+      executable: "openclaw",
+    };
+    const runCommand: CommandRunner = async (argv) => {
+      calls.push(argv);
+      let body: object;
+      if (argv.includes("workboard") && !argv.includes("--status")) {
+        body = { cards: Array.from({ length: 50 }, () => ({ status: "done" })) };
+      } else if (argv.includes("workboard")) {
+        body = { cards: [{ status: argv[argv.indexOf("--status") + 1] }] };
+      } else if (argv.includes("sessions")) {
+        body = { count: 0, sessions: [] };
+      } else {
+        body = { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
+      }
+      return {
+        stdout: JSON.stringify(body),
+        stderr: "",
+        code: 0,
+        termination: "exit",
+      };
+    };
+
+    const result = await new OpenClawCollector(runCommand, options).collect();
+
+    expect(
+      calls
+        .filter((argv) => argv.includes("workboard"))
+        .map((argv) => (argv.includes("--status") ? argv[argv.indexOf("--status") + 1] : "all")),
+    ).toEqual(["all", "triage", "running", "blocked", "done"]);
+    expect(result.workboard).toEqual({ triage: 1, running: 1, blocked: 1, done24h: 0 });
   });
 });

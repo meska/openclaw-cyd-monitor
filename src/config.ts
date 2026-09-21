@@ -4,7 +4,7 @@ const defaults: PluginOptions = {
   host: "0.0.0.0",
   port: 8765,
   intervalMs: 5000,
-  timeoutMs: 10000,
+  timeoutMs: 60000,
   activeMinutes: 15,
   workboard: "all",
   executable: "openclaw",

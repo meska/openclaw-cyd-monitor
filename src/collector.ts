@@ -134,13 +134,17 @@ export class OpenClawCollector {
       return this.runJson(["workboard", "list", "--board", this.options.workboard, "--json"]);
     }
 
-    // La lista globale mista xe paginada: query separate evita de perder card oltre la prima pagina.
-    const payloads = await Promise.all(
-      ["triage", "running", "blocked", "done"].map((status) =>
-        this.runJson(["workboard", "list", "--status", status, "--json"]),
-      ),
-    );
-    return { cards: payloads.flatMap((payload) => asArray(payload.cards)) };
+    const globalPayload = await this.runJson(["workboard", "list", "--json"]);
+    const globalCards = asArray(globalPayload.cards);
+    if (globalCards.length !== 50) return globalPayload;
+
+    // Le version vecie tagliava la lista globale a 50; el fallback seriale evita quattro CLI in gara.
+    const cards: unknown[] = [];
+    for (const status of ["triage", "running", "blocked", "done"]) {
+      const payload = await this.runJson(["workboard", "list", "--status", status, "--json"]);
+      cards.push(...asArray(payload.cards));
+    }
+    return { cards };
   }
 
   private async runJson(args: string[]): Promise<JsonObject> {
