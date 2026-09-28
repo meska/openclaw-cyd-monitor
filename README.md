@@ -71,11 +71,14 @@ npm install
 npm test
 npm run check
 npm pack --pack-destination /tmp
-openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.3.0.tgz --force
+openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.3.3.tgz --force
 ```
 
-The plugin listens on `0.0.0.0:8765` and refreshes every five seconds by
-default. Override settings through `plugins.entries.openclaw-cyd-monitor.config`:
+The plugin listens on `0.0.0.0:8765` and refreshes every five seconds after
+each collection completes. Since 0.3.3 it reads the Gateway `status` RPC directly,
+without the CLI presence probe or additional Gateway permissions.
+
+Override settings through `plugins.entries.openclaw-cyd-monitor.config`:
 
 ```json
 {
