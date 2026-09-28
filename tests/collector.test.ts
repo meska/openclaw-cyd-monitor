@@ -84,6 +84,50 @@ describe("snapshotFromPayload", () => {
     expect(publicPayload.workboard).toEqual({ triage: 0, running: 0, blocked: 0, done24h: 0 });
   });
 
+  it("reads Gateway status directly without the presence-probing CLI", async () => {
+    const calls: string[][] = [];
+    const options: PluginOptions = {
+      host: "127.0.0.1",
+      port: 8765,
+      intervalMs: 5000,
+      timeoutMs: 10000,
+      activeMinutes: 15,
+      workboard: "default",
+      executable: "openclaw",
+    };
+    const runCommand: CommandRunner = async (argv) => {
+      calls.push(argv);
+      const body = argv.includes("gateway")
+        ? {
+            runtimeVersion: "2026.9.6",
+            sessions: { count: 4, recent: [{ model: "gpt-test", key: "private" }] },
+            tasks: { active: 2, failures: 1 },
+            cliProjection: { agents: { rows: [{ id: "main" }, { id: "qa" }] } },
+            heartbeat: { agents: [{ enabled: true }, { enabled: false }] },
+            degradedPlugins: [],
+            queuedSystemEvents: [],
+          }
+        : argv.includes("sessions")
+          ? { count: 1, sessions: [] }
+          : { cards: [] };
+      return { stdout: JSON.stringify(body), stderr: "", code: 0, termination: "exit" };
+    };
+
+    const result = await new OpenClawCollector(runCommand, options).collect();
+
+    expect(calls[0]).toEqual([
+      "openclaw", "gateway", "call", "status", "--params",
+      '{"includeChannelSummary":false,"includeCliProjection":true}', "--json",
+    ]);
+    expect(calls).not.toContainEqual(["openclaw", "status", "--json"]);
+    expect(result.gateway.online).toBe(true);
+    expect(result.gateway.latencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.sessions).toMatchObject({ total: 4, recent: 1, active: 1, model: "gpt-test" });
+    expect(result.agents).toEqual({ total: 2, heartbeatEnabled: 1 });
+    expect(result.tasks).toEqual({ active: 2, failures: 1 });
+    expect(JSON.stringify(result)).not.toContain("private");
+  });
+
   it("keeps working when the optional Workboard plugin is absent", async () => {
     const options: PluginOptions = {
       host: "127.0.0.1",

@@ -113,7 +113,7 @@ export class OpenClawCollector {
   public async collect(): Promise<StatusSnapshot> {
     // Le tre letture xe indipendenti: in parallelo el display no aspetta la somma dei CLI.
     const [status, active, workboard] = await Promise.all([
-      this.runJson(["status", "--json"]),
+      this.collectGatewayStatus(),
       this.runJson([
         "sessions",
         "--all-agents",
@@ -127,6 +127,26 @@ export class OpenClawCollector {
       this.collectWorkboard().catch(() => ({})),
     ]);
     return snapshotFromPayload(status, active, workboard);
+  }
+
+  private async collectGatewayStatus(): Promise<JsonObject> {
+    const startedAt = performance.now();
+    // La CLI status fa un probe system-presence prima della proiezion: col token
+    // del plugin vien FORBIDDEN. La RPC status dà gli stessi aggregati senza quel probe.
+    const status = await this.runJson([
+      "gateway",
+      "call",
+      "status",
+      "--params",
+      '{"includeChannelSummary":false,"includeCliProjection":true}',
+      "--json",
+    ]);
+    const projection = asObject(status.cliProjection);
+    return {
+      ...status,
+      gateway: { reachable: true, connectLatencyMs: Math.round(performance.now() - startedAt) },
+      agents: { agents: asArray(asObject(projection.agents).rows) },
+    };
   }
 
   private async collectWorkboard(): Promise<JsonObject> {
