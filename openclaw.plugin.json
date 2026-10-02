@@ -24,7 +24,7 @@
         "type": "integer",
         "minimum": 1000,
         "maximum": 600000,
-        "default": 15000,
+        "default": 30000,
         "description": "Minimum age before the in-process session scan refreshes on request"
       },
       "slowTtlMs": {

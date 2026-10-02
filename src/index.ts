@@ -9,6 +9,11 @@ import { parsePluginOptions } from "./config.js";
 import { MonitorServer, StatusCoordinator } from "./server.js";
 import type { SessionRowSummary } from "./types.js";
 
+function agentIdFromSessionKey(sessionKey: string | undefined): string | undefined {
+  const match = /^agent:([^:]+):/.exec(sessionKey ?? "");
+  return match?.[1];
+}
+
 export default definePluginEntry({
   id: "openclaw-cyd-monitor",
   name: "OpenClaw CYD Monitor",
@@ -43,10 +48,10 @@ export default definePluginEntry({
       },
       async start(ctx) {
         coordinator.reset();
-        // Push, no polling: ogni sessions.changed marca sporco el scan veloce.
-        // Se el facade no ghe xe, el TTL del scan veloce fa da fallback.
-        unsubscribeSessionsChanged = ctx.gatewayEvents?.onSessionsChanged(() => {
-          coordinator.markSessionsDirty();
+        // Push, no polling: ogni sessions.changed marca sporco solo l'agente
+        // che è cambiato. Se el facade no ghe xe, el TTL fa da fallback.
+        unsubscribeSessionsChanged = ctx.gatewayEvents?.onSessionsChanged((event) => {
+          coordinator.markSessionsDirty(event.agentId ?? agentIdFromSessionKey(event.sessionKey));
         });
         try {
           await server.start();

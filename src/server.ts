@@ -2,26 +2,11 @@ import { createServer, type Server } from "node:http";
 
 import {
   EMPTY_SLOW_PART,
-  listAllSessionRows,
+  SessionRowCache,
   sessionStatusFromRows,
   type SlowStatusPart,
 } from "./collector.js";
-import type {
-  Logger,
-  PluginOptions,
-  SessionLister,
-  SessionStatus,
-  StatusSnapshot,
-} from "./types.js";
-
-const EMPTY_SESSION_STATUS: SessionStatus = {
-  total: 0,
-  recent: 0,
-  active: 0,
-  tokenLoadPercent: 0,
-  tokenSamples: 0,
-  model: "unknown",
-};
+import type { Logger, PluginOptions, SessionLister, StatusSnapshot } from "./types.js";
 
 export interface StatusCoordinatorDeps {
   options: PluginOptions;
@@ -33,65 +18,80 @@ export interface StatusCoordinatorDeps {
 }
 
 /**
- * Niente piu' timer: el display xe l'unico client e decide lui quando si spende.
- * - Fast: scan sessioni in-process, a richiesta o su evento sessions.changed.
+ * Niente piu' timer e niente piu' scan sincrono sulla richiesta: il fetch del
+ * CYD ha 4 s di timeout e il scan completo (tutti gli agenti) costava 1-2,5 s.
+ * - Fast: cache per agente, rescan in background (single-flight) solo degli
+ *   agenti sporchi (evento sessions.changed) o scaduti; le finestre temporali
+ *   si ricalcolano in memoria ad ogni richiesta.
  * - Slow: ciclo CLI seriale (status + workboard), single-flight, solo se scaduto.
- * Display staccato = zero subprocess, zero letture DB.
+ * Display staccato = zero subprocess, zero query; display attivo = risposte
+ * sempre immediate, dalla cache.
  */
 export class StatusCoordinator {
   private readonly now: () => number;
-  private sessionStatus: SessionStatus | undefined;
+  private readonly rowCache = new SessionRowCache();
   private slowPart: SlowStatusPart | undefined;
-  private fastDirty = true;
   private fastError = "";
   private slowError = "";
+  private warmedUp = false;
   private lastFastAt = 0;
   private lastSlowAt = 0;
   private fastScanMs = 0;
+  private fastInFlight: Promise<void> | undefined;
   private slowInFlight: Promise<void> | undefined;
 
   public constructor(private readonly deps: StatusCoordinatorDeps) {
     this.now = deps.now ?? Date.now;
   }
 
-  public markSessionsDirty(): void {
-    this.fastDirty = true;
+  public markSessionsDirty(agentId?: string): void {
+    this.rowCache.markDirty(agentId);
   }
 
   public reset(): void {
-    this.sessionStatus = undefined;
+    this.rowCache.reset();
     this.slowPart = undefined;
-    this.fastDirty = true;
     this.fastError = "";
     this.slowError = "";
+    this.warmedUp = false;
     this.lastFastAt = 0;
     this.lastSlowAt = 0;
+    this.fastInFlight = undefined;
     this.slowInFlight = undefined;
   }
 
   public request(): { body: StatusSnapshot | { schema: 2; ok: false; error: string }; status: number } {
     const now = this.now();
-    if (this.fastDirty || now - this.lastFastAt >= this.deps.options.fastTtlMs) {
-      this.refreshFast(now);
+    if (
+      !this.fastInFlight &&
+      (!this.warmedUp || this.rowCache.hasDirty || now - this.lastFastAt >= this.deps.options.fastTtlMs)
+    ) {
+      // In background: el display no aspetta mai el scan.
+      this.fastInFlight = this.refreshFast(now).finally(() => {
+        this.fastInFlight = undefined;
+      });
     }
     if (
       !this.slowInFlight &&
       (this.slowPart === undefined || now - this.lastSlowAt >= this.deps.options.slowTtlMs)
     ) {
-      // Fire-and-forget: el display pol servisarse co i dati de un minuto fa.
       this.slowInFlight = this.refreshSlow().finally(() => {
         this.slowInFlight = undefined;
       });
     }
 
-    if (this.sessionStatus === undefined && this.slowPart === undefined) {
+    if (!this.warmedUp && this.slowPart === undefined) {
       return { body: { schema: 2, ok: false, error: this.fastError || "warming up" }, status: 503 };
     }
 
-    const sessions = this.sessionStatus ?? EMPTY_SESSION_STATUS;
+    // Finestre temporali ricalcolate dalla cache: costo in memoria, zero DB.
+    const sessions = sessionStatusFromRows(
+      this.rowCache.allRows(),
+      this.deps.options.activeMinutes,
+      now,
+    );
     const slow = this.slowPart ?? EMPTY_SLOW_PART;
     const errors = [this.fastError, this.slowError].filter(Boolean);
-    const warming = this.slowPart === undefined && !this.slowError;
 
     const body: StatusSnapshot = {
       schema: 2,
@@ -108,7 +108,7 @@ export class StatusCoordinator {
     if (errors.length > 0) {
       body.stale = true;
       body.error = errors[0] ?? "status refresh failed";
-    } else if (warming) {
+    } else if (!this.warmedUp || this.slowPart === undefined) {
       body.stale = true;
       body.error = "warming up";
     }
@@ -116,23 +116,29 @@ export class StatusCoordinator {
   }
 
   public async stop(): Promise<void> {
-    await this.slowInFlight;
+    await Promise.all([this.fastInFlight, this.slowInFlight]);
   }
 
-  private refreshFast(now: number): void {
-    const startedAt = this.now();
-    try {
-      const rows = listAllSessionRows(this.deps.listSessions, this.deps.getAgentIds());
-      this.sessionStatus = sessionStatusFromRows(rows, this.deps.options.activeMinutes, now);
-      this.fastScanMs = Math.max(0, this.now() - startedAt);
-      this.fastError = "";
-    } catch (error) {
-      // El client LAN riceve solo un errore neutro; i dettagli resta nei log locali.
-      this.fastError = "status refresh failed";
-      this.deps.logger.warn(`Fast session scan failed: ${describe(error)}`);
-    }
-    this.fastDirty = false;
-    this.lastFastAt = now;
+  private refreshFast(now: number): Promise<void> {
+    // setImmediate: la risposta HTTP parte PRIMA del scan, poi el scan corre.
+    // El fetch del CYD ha 4 s di timeout: mai bloccarlo sulla lettura store.
+    return new Promise<void>((resolve) => {
+      setImmediate(() => {
+        const startedAt = this.now();
+        try {
+          this.rowCache.refresh(this.deps.listSessions, this.deps.getAgentIds(), now);
+          this.fastScanMs = Math.max(0, this.now() - startedAt);
+          this.fastError = "";
+        } catch (error) {
+          // El client LAN riceve solo un errore neutro; i dettagli resta nei log locali.
+          this.fastError = "status refresh failed";
+          this.deps.logger.warn(`Fast session scan failed: ${describe(error)}`);
+        }
+        this.warmedUp = true;
+        this.lastFastAt = now;
+        resolve();
+      });
+    });
   }
 
   private async refreshSlow(): Promise<void> {

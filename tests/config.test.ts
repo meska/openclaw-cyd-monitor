@@ -7,7 +7,7 @@ describe("parsePluginOptions", () => {
     expect(parsePluginOptions(undefined)).toEqual({
       host: "0.0.0.0",
       port: 8765,
-      fastTtlMs: 15_000,
+      fastTtlMs: 30_000,
       slowTtlMs: 60_000,
       timeoutMs: 60_000,
       activeMinutes: 15,
@@ -20,7 +20,7 @@ describe("parsePluginOptions", () => {
     expect(parsePluginOptions({ host: " ", port: 70000, fastTtlMs: 2, slowTtlMs: 10 })).toMatchObject({
       host: "0.0.0.0",
       port: 8765,
-      fastTtlMs: 15_000,
+      fastTtlMs: 30_000,
       slowTtlMs: 60_000,
     });
   });

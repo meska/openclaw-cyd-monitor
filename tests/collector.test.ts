@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  SessionRowCache,
   SlowCycleCollector,
   agentsFromConfig,
   listAllSessionRows,
@@ -35,13 +36,56 @@ describe("agentsFromConfig", () => {
 
 describe("listAllSessionRows", () => {
   it("skips agents whose store cannot be read", () => {
-    const listSessions = vi.fn((params?: { agentId?: string }) => {
+    const listSessions = vi.fn((params?: { agentId?: string; readOnly?: boolean }) => {
       if (params?.agentId === "broken") throw new Error("no store");
       return [{ sessionKey: `${params?.agentId}:row`, entry: {} }];
     });
     const rows = listAllSessionRows(listSessions, ["main", "broken"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.sessionKey).toBe("main:row");
+  });
+});
+
+describe("SessionRowCache", () => {
+  it("scans only new, dirty or expired agents", () => {
+    const listSessions = vi.fn((params?: { agentId?: string; readOnly?: boolean }) => [
+      { sessionKey: `${params?.agentId}:row`, entry: {} },
+    ]);
+    const cache = new SessionRowCache(500);
+
+    cache.refresh(listSessions, ["main", "ops"], 1_000);
+    expect(listSessions).toHaveBeenCalledTimes(2);
+    expect(listSessions).toHaveBeenCalledWith({ agentId: "main", readOnly: true });
+
+    // Freschi e puliti: nessuna nuova lettura.
+    cache.refresh(listSessions, ["main", "ops"], 1_100);
+    expect(listSessions).toHaveBeenCalledTimes(2);
+
+    cache.markDirty("ops");
+    cache.refresh(listSessions, ["main", "ops"], 1_200);
+    expect(listSessions).toHaveBeenCalledTimes(3);
+    expect(listSessions).toHaveBeenLastCalledWith({ agentId: "ops", readOnly: true });
+
+    cache.markDirty();
+    cache.refresh(listSessions, ["main", "ops"], 1_300);
+    expect(listSessions).toHaveBeenCalledTimes(5);
+
+    // maxAge 500 ms: tutti scaduti, tutti riletti.
+    cache.refresh(listSessions, ["main", "ops"], 2_000);
+    expect(listSessions).toHaveBeenCalledTimes(7);
+  });
+
+  it("keeps the previous rows when an agent store cannot be read", () => {
+    const listSessions = vi.fn((params?: { agentId?: string; readOnly?: boolean }) => {
+      if (params?.agentId === "broken") throw new Error("no store");
+      return [{ sessionKey: `${params?.agentId}:row`, entry: {} }];
+    });
+    const cache = new SessionRowCache();
+    cache.refresh(listSessions, ["main"], 1_000);
+
+    cache.markDirty("broken");
+    cache.refresh(listSessions, ["main", "broken"], 2_000);
+    expect(cache.allRows()).toHaveLength(1);
   });
 });
 

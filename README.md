@@ -93,7 +93,7 @@ Override settings through `plugins.entries.openclaw-cyd-monitor.config`:
 {
   "host": "0.0.0.0",
   "port": 8765,
-  "fastTtlMs": 15000,
+  "fastTtlMs": 30000,
   "slowTtlMs": 60000,
   "timeoutMs": 60000,
   "activeMinutes": 15,

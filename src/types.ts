@@ -70,7 +70,9 @@ export interface SessionRowSummary {
   entry: Record<string, unknown>;
 }
 
-export type SessionLister = (params?: { agentId?: string }) => SessionRowSummary[];
+export type SessionLister = (
+  params?: { agentId?: string; readOnly?: boolean },
+) => SessionRowSummary[];
 
 export interface ConfigSnapshot {
   agents?: Record<string, unknown>;

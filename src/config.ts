@@ -3,7 +3,7 @@ import type { PluginOptions } from "./types.js";
 const defaults: PluginOptions = {
   host: "0.0.0.0",
   port: 8765,
-  fastTtlMs: 15_000,
+  fastTtlMs: 30_000,
   slowTtlMs: 60_000,
   timeoutMs: 60_000,
   activeMinutes: 15,

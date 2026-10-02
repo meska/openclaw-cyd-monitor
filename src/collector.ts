@@ -63,12 +63,82 @@ export function listAllSessionRows(
   // Un agente rotto no deve fermare i altri: el display mostra quel che ghe xe.
   for (const agentId of agentIds) {
     try {
-      rows.push(...(listSessions({ agentId }) ?? []));
+      rows.push(...(listSessions({ agentId, readOnly: true }) ?? []));
     } catch {
       // Agente senza store o non ancora inizializzato: saltalo e via.
     }
   }
   return rows;
+}
+
+/**
+ * Cache per agente delle righe sessione: el scan completo (10 agenti, ~1000
+ * righe) costava 1-2,5 s sincroni e mandava in timeout il fetch del CYD.
+ * Ora si rescanna solo l'agente sporco (evento) o scaduto; il resto served
+ * dalla cache e le finestre temporali si ricalcolano in memoria.
+ */
+export class SessionRowCache {
+  private readonly rows = new Map<string, SessionRowSummary[]>();
+  private readonly scannedAt = new Map<string, number>();
+  private readonly dirty = new Set<string>();
+
+  public constructor(private readonly maxAgeMs: number = 600_000) {}
+
+  public markDirty(agentId?: string): void {
+    if (agentId === undefined) {
+      // Senza agentId no sae chi è cambià: sporco tutto alla prossima.
+      this.dirty.add("__all__");
+      return;
+    }
+    this.dirty.add(agentId);
+  }
+
+  public reset(): void {
+    this.rows.clear();
+    this.scannedAt.clear();
+    this.dirty.clear();
+    this.dirty.add("__all__");
+  }
+
+  public allRows(): SessionRowSummary[] {
+    const out: SessionRowSummary[] = [];
+    for (const list of this.rows.values()) out.push(...list);
+    return out;
+  }
+
+  public get isEmpty(): boolean {
+    return this.rows.size === 0;
+  }
+
+  public get hasDirty(): boolean {
+    return this.dirty.size > 0;
+  }
+
+  /** Riscansiona solo gli agenti sporchi, nuovi o troppo vecchi. */
+  public refresh(
+    listSessions: SessionLister,
+    agentIds: string[],
+    nowMs: number,
+  ): { scanned: string[] } {
+    const forceAll = this.dirty.has("__all__");
+    const scanned: string[] = [];
+    for (const agentId of agentIds) {
+      const cached = this.rows.has(agentId);
+      const stale = !cached || nowMs - (this.scannedAt.get(agentId) ?? 0) >= this.maxAgeMs;
+      const dirty = forceAll || !cached || this.dirty.has(agentId);
+      if (!stale && !dirty) continue;
+      try {
+        this.rows.set(agentId, listSessions({ agentId, readOnly: true }) ?? []);
+        this.scannedAt.set(agentId, nowMs);
+        this.dirty.delete(agentId);
+        scanned.push(agentId);
+      } catch {
+        // Agente illeggibile: tieni la copia vecia, se la ghe xe.
+      }
+    }
+    this.dirty.delete("__all__");
+    return { scanned };
+  }
 }
 
 export function sessionStatusFromRows(
