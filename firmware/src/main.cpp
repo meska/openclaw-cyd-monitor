@@ -42,6 +42,8 @@ constexpr uint16_t COLOR_RED = 0xF9E7;
 constexpr unsigned long FETCH_INTERVAL_MS = 5000;
 constexpr unsigned long DRAW_INTERVAL_MS = 320;
 constexpr unsigned long STALE_ICON_FRAME_INTERVAL_MS = 1280;
+constexpr unsigned long RECOVERY_FRAME_INTERVAL_MS = 300;
+constexpr unsigned long RECOVERY_PLAYBACK_MS = 1500;
 constexpr unsigned long OTA_ARM_HOLD_MS = 2000;
 constexpr unsigned long OTA_WINDOW_MS = 120000;
 
@@ -100,11 +102,66 @@ void drawDevice();
 void drawScreen(bool clear = false);
 void drawMascot(int x, int y, bool happy, uint8_t frame);
 
+enum class MascotState : uint8_t { LIVE, BUSY, WARNING, STALE, DOWN, RECOVERY };
+
+MascotState currentMascotState = MascotState::LIVE;
+MascotState lastMascotState = MascotState::DOWN;
+unsigned long recoveryUntil = 0;
+
+uint8_t mascotFrameCount(const MascotState state) {
+  switch (state) {
+    case MascotState::LIVE: return STATUS_LIVE_FRAME_COUNT;
+    case MascotState::BUSY: return STATUS_BUSY_FRAME_COUNT;
+    case MascotState::WARNING: return STATUS_WARNING_FRAME_COUNT;
+    case MascotState::STALE: return STATUS_STALE_FRAME_COUNT;
+    case MascotState::DOWN: return STATUS_DOWN_FRAME_COUNT;
+    case MascotState::RECOVERY: return STATUS_RECOVERY_FRAME_COUNT;
+  }
+  return STATUS_LIVE_FRAME_COUNT;
+}
+
+const uint16_t* mascotFrames(const MascotState state) {
+  switch (state) {
+    case MascotState::LIVE: return &STATUS_LIVE_FRAMES[0][0];
+    case MascotState::BUSY: return &STATUS_BUSY_FRAMES[0][0];
+    case MascotState::WARNING: return &STATUS_WARNING_FRAMES[0][0];
+    case MascotState::STALE: return &STATUS_STALE_FRAMES[0][0];
+    case MascotState::DOWN: return &STATUS_DOWN_FRAMES[0][0];
+    case MascotState::RECOVERY: return &STATUS_RECOVERY_FRAMES[0][0];
+  }
+  return &STATUS_LIVE_FRAMES[0][0];
+}
+
+MascotState baseMascotState() {
+  if (!status.valid || (!status.online && !status.stale)) return MascotState::DOWN;
+  if (status.stale) return MascotState::STALE;
+  if (status.taskFailures > 0 || status.degradedPlugins > 0) return MascotState::WARNING;
+  if (status.activeTasks > 0) return MascotState::BUSY;
+  return MascotState::LIVE;
+}
+
+MascotState mascotState() {
+  // Recovery one-shot: dopo DOWN o STALE el salutino coerente col personaggio.
+  const MascotState base = baseMascotState();
+  const bool healthy = base == MascotState::LIVE || base == MascotState::BUSY ||
+                       base == MascotState::WARNING;
+  if (healthy && (lastMascotState == MascotState::DOWN || lastMascotState == MascotState::STALE)) {
+    recoveryUntil = millis() + RECOVERY_PLAYBACK_MS;
+  }
+  if (recoveryUntil != 0 && millis() >= recoveryUntil) recoveryUntil = 0;
+  if (recoveryUntil != 0) return MascotState::RECOVERY;
+  return base;
+}
+
 uint8_t statusIconFrame() {
-  // LIVE xe vivace, STALE rallenta, DOWN e WAIT resta fermi e ben riconoscibili.
-  if (!status.valid || (!status.online && !status.stale)) return 0;
-  const unsigned long interval = status.stale ? STALE_ICON_FRAME_INTERVAL_MS : DRAW_INTERVAL_MS;
-  return (millis() / interval) % STATUS_ICON_FRAME_COUNT;
+  currentMascotState = mascotState();
+  lastMascotState = currentMascotState;
+  unsigned long interval = DRAW_INTERVAL_MS;
+  if (currentMascotState == MascotState::STALE || currentMascotState == MascotState::DOWN) {
+    interval = STALE_ICON_FRAME_INTERVAL_MS;
+  }
+  if (currentMascotState == MascotState::RECOVERY) interval = RECOVERY_FRAME_INTERVAL_MS;
+  return (millis() / interval) % mascotFrameCount(currentMascotState);
 }
 
 void addTokenSample(int percent) {
@@ -236,12 +293,14 @@ void drawMascot(int x, int y, bool happy, uint8_t frame) {
 
 void drawStatusIcon(int x, int y, bool connected, bool stale, uint8_t frame) {
   const uint16_t badge = !status.valid ? COLOR_MUTED :
-                         stale ? COLOR_WARN : connected ? COLOR_MINT : COLOR_RED;
-  const uint8_t safeFrame = frame % STATUS_ICON_FRAME_COUNT;
+                         stale || currentMascotState == MascotState::WARNING ? COLOR_WARN :
+                         connected ? COLOR_MINT : COLOR_RED;
+  const uint8_t safeFrame = frame % mascotFrameCount(currentMascotState);
   display.fillRect(x, y, STATUS_ICON_WIDTH, STATUS_ICON_HEIGHT, COLOR_PANEL);
   // Lo sprite xe gia' ingrandio offline: sul TFT no ghe xe filtro o interpolazion.
   display.pushImage(x, y, STATUS_ICON_WIDTH, STATUS_ICON_HEIGHT,
-                    STATUS_ICON_FRAMES[safeFrame], STATUS_ICON_TRANSPARENT);
+                    mascotFrames(currentMascotState) + safeFrame * STATUS_ICON_WIDTH * STATUS_ICON_HEIGHT,
+                    STATUS_ICON_TRANSPARENT);
   display.fillRect(x + STATUS_ICON_WIDTH - 4, y + STATUS_ICON_HEIGHT - 4, 4, 4, badge);
 }
 

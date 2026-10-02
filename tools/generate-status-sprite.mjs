@@ -8,9 +8,17 @@ import { inflateSync } from "node:zlib";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceDirectory = resolve(repositoryRoot, "firmware/assets/status-icon");
 const outputPath = resolve(repositoryRoot, "firmware/include/status_icon_sprite.h");
-const framePaths = Array.from({ length: 5 }, (_, index) =>
-  resolve(sourceDirectory, `live-smile-0${index}.png`),
-);
+
+// Uno stato, un prefisso, un numero de frame pari: el generatore se aspetta
+// <prefisso>-<NN>.png e emette STATUS_<NOME>_FRAMES + STATUS_<NOME>_FRAME_COUNT.
+const STATES = [
+  { name: "LIVE", prefix: "live-smile", count: 5 },
+  { name: "BUSY", prefix: "busy", count: 6 },
+  { name: "WARNING", prefix: "warning", count: 4 },
+  { name: "STALE", prefix: "stale", count: 4 },
+  { name: "DOWN", prefix: "down", count: 4 },
+  { name: "RECOVERY", prefix: "recovery", count: 4 },
+];
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const TRANSPARENT_RGB565 = 0x0001;
@@ -25,7 +33,7 @@ function paethPredictor(left, above, upperLeft) {
   const leftDistance = Math.abs(prediction - left);
   const aboveDistance = Math.abs(prediction - above);
   const upperLeftDistance = Math.abs(prediction - upperLeft);
-  if (leftDistance <= aboveDistance && leftDistance <= upperLeftDistance) return left;
+  if (leftDistance <= aboveDistance && aboveDistance <= upperLeftDistance) return above;
   if (aboveDistance <= upperLeftDistance) return above;
   return upperLeft;
 }
@@ -117,7 +125,6 @@ function toRgb565Frame(path, expectedWidth, expectedHeight) {
   if (width !== expectedWidth || height !== expectedHeight) {
     throw new Error(`${path} is ${width}x${height}; expected ${expectedWidth}x${expectedHeight}`);
   }
-
   const frame = [];
   for (let outputY = 0; outputY < RENDERED_ICON_HEIGHT; outputY += 1) {
     for (let outputX = 0; outputX < RENDERED_ICON_WIDTH; outputX += 1) {
@@ -129,16 +136,16 @@ function toRgb565Frame(path, expectedWidth, expectedHeight) {
       const green = pixels[offset + 1];
       const blue = pixels[offset + 2];
       const alpha = pixels[offset + 3];
-      if (alpha !== 0 && alpha !== 255) {
-        throw new Error(`${path} contains non-binary alpha ${alpha}`);
-      }
-      if (alpha === 0) {
+      // Alpha parziale dai generatori: sfumatura binaria col soglia a metà.
+      if (alpha < 128) {
         frame.push(TRANSPARENT_RGB565);
         continue;
       }
       const rgb565 = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3);
       if (rgb565 === TRANSPARENT_RGB565) {
-        throw new Error(`${path} contains an opaque pixel matching the transparency key`);
+        // Pixel quasi-nero col valore del tasto: lo sposto su nero pieno.
+        frame.push(0x0000);
+        continue;
       }
       frame.push(rgb565);
     }
@@ -156,30 +163,51 @@ function formatFrame(frame) {
   return rows.join(",\n");
 }
 
-const firstFrame = decodeRgbaPng(framePaths[0]);
-const frames = framePaths.map((path) => toRgb565Frame(path, firstFrame.width, firstFrame.height));
-const formattedFrames = frames.map((frame) => `  {\n${formatFrame(frame)}\n  }`).join(",\n");
+function framePathsFor(prefix, count) {
+  return Array.from({ length: count }, (_, index) =>
+    resolve(sourceDirectory, `${prefix}-${String(index).padStart(2, "0")}.png`),
+  );
+}
+
+const states = STATES.map((state) => {
+  const paths = framePathsFor(state.prefix, state.count);
+  const firstFrame = decodeRgbaPng(paths[0]);
+  const frames = paths.map((path) => toRgb565Frame(path, firstFrame.width, firstFrame.height));
+  return { ...state, width: firstFrame.width, height: firstFrame.height, frames };
+});
+
+const headerBlocks = states.map((state) => {
+  const formattedFrames = state.frames
+    .map((frame) => `  {\n${formatFrame(frame)}\n  }`)
+    .join(",\n");
+  return `constexpr uint8_t STATUS_${state.name}_FRAME_COUNT = ${state.frames.length};
+const uint16_t STATUS_${state.name}_FRAMES[STATUS_${state.name}_FRAME_COUNT]
+                                 [STATUS_ICON_WIDTH * STATUS_ICON_HEIGHT] PROGMEM = {
+${formattedFrames}
+};
+
+static_assert(sizeof(STATUS_${state.name}_FRAMES) ==
+              STATUS_${state.name}_FRAME_COUNT * STATUS_ICON_WIDTH * STATUS_ICON_HEIGHT * sizeof(uint16_t));`;
+});
+
 const header = `#pragma once
 
 #include <Arduino.h>
 
 // Genera' dai PNG PixelLab con nearest-neighbour: bordi neti anche a misura piu' granda.
+// Uno stato della mascotte, un set: el firmware sceglie in base al stato del monitor.
 constexpr uint8_t STATUS_ICON_WIDTH = ${RENDERED_ICON_WIDTH};
 constexpr uint8_t STATUS_ICON_HEIGHT = ${RENDERED_ICON_HEIGHT};
-constexpr uint8_t STATUS_ICON_FRAME_COUNT = ${frames.length};
 constexpr uint16_t STATUS_ICON_TRANSPARENT = 0x${TRANSPARENT_RGB565.toString(16).padStart(4, "0").toUpperCase()};
 
-const uint16_t STATUS_ICON_FRAMES[STATUS_ICON_FRAME_COUNT]
-                                 [STATUS_ICON_WIDTH * STATUS_ICON_HEIGHT] PROGMEM = {
-${formattedFrames}
-};
-
-static_assert(sizeof(STATUS_ICON_FRAMES) ==
-              STATUS_ICON_FRAME_COUNT * STATUS_ICON_WIDTH * STATUS_ICON_HEIGHT * sizeof(uint16_t));
+${headerBlocks.join("\n\n")}
 `;
 
 writeFileSync(outputPath, header);
+const summary = states
+  .map((state) => `${state.name}=${state.frames.length}`)
+  .join(", ");
 stdout.write(
-  `Generated ${outputPath} from ${frames.length} ${firstFrame.width}x${firstFrame.height} frames ` +
-  `rendered at ${RENDERED_ICON_WIDTH}x${RENDERED_ICON_HEIGHT}.\n`,
+  `Generated ${outputPath} from ${states.length} states (${summary}), ` +
+  `${states[0].width}x${states[0].height} frames rendered at ${RENDERED_ICON_WIDTH}x${RENDERED_ICON_HEIGHT}.\n`,
 );
