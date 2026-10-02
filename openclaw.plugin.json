@@ -1,7 +1,7 @@
 {
   "id": "openclaw-cyd-monitor",
   "name": "OpenClaw CYD Monitor",
-  "description": "Serves sanitized OpenClaw status metrics to an ESP32 Cheap Yellow Display",
+  "description": "Serves sanitized OpenClaw status metrics to an ESP32 CYD display",
   "activation": {
     "onStartup": true
   },
@@ -20,11 +20,19 @@
         "maximum": 65535,
         "default": 8765
       },
-      "intervalMs": {
+      "fastTtlMs": {
         "type": "integer",
         "minimum": 1000,
-        "maximum": 60000,
-        "default": 5000
+        "maximum": 600000,
+        "default": 15000,
+        "description": "Minimum age before the in-process session scan refreshes on request"
+      },
+      "slowTtlMs": {
+        "type": "integer",
+        "minimum": 15000,
+        "maximum": 3600000,
+        "default": 60000,
+        "description": "Minimum age before the serial CLI status/workboard cycle refreshes on request"
       },
       "timeoutMs": {
         "type": "integer",
@@ -57,8 +65,11 @@
     "port": {
       "label": "Listen port"
     },
-    "intervalMs": {
-      "label": "Refresh interval (ms)"
+    "fastTtlMs": {
+      "label": "Session scan TTL (ms)"
+    },
+    "slowTtlMs": {
+      "label": "Slow cycle TTL (ms)"
     },
     "timeoutMs": {
       "label": "Command timeout (ms)"

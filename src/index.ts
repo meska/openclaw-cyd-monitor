@@ -1,8 +1,13 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
-import { OpenClawCollector } from "./collector.js";
+import {
+  SlowCycleCollector,
+  agentsFromConfig,
+  slowPartFromPayloads,
+} from "./collector.js";
 import { parsePluginOptions } from "./config.js";
-import { MonitorServer, SnapshotCache } from "./server.js";
+import { MonitorServer, StatusCoordinator } from "./server.js";
+import type { SessionRowSummary } from "./types.js";
 
 export default definePluginEntry({
   id: "openclaw-cyd-monitor",
@@ -12,26 +17,48 @@ export default definePluginEntry({
     if (api.registrationMode !== "full" && api.registrationMode !== "discovery") return;
 
     const options = parsePluginOptions(api.pluginConfig);
-    const collector = new OpenClawCollector(api.runtime.system.runCommandWithTimeout, options);
-    const cache = new SnapshotCache(collector, options.intervalMs, api.logger);
-    const server = new MonitorServer(options, cache, api.logger);
+    const slowCycle = new SlowCycleCollector(api.runtime.system.runCommandWithTimeout, options);
+    const coordinator = new StatusCoordinator({
+      options,
+      logger: api.logger,
+      // Letture in-process: zero subprocess, zero riaperture del DB.
+      // El cast el xe solo de forma: la riga del store la ga sempre sessionKey + entry.
+      listSessions: (params) =>
+        (api.runtime.agent.session.listSessionEntries(params) ?? []) as SessionRowSummary[],
+      getAgentIds: () =>
+        agentsFromConfig(api.runtime.config.current() as { agents?: Record<string, unknown> }),
+      collectSlowPart: async () => {
+        const { status, workboard } = await slowCycle.collect();
+        return slowPartFromPayloads(status, workboard);
+      },
+    });
+    const server = new MonitorServer(options, coordinator, api.logger);
+
+    let unsubscribeSessionsChanged: (() => void) | undefined;
 
     api.registerService({
       id: "openclaw-cyd-monitor-http",
       reload: {
         configPrefixes: ["plugins.entries.openclaw-cyd-monitor.config"],
       },
-      async start() {
-        cache.start();
+      async start(ctx) {
+        coordinator.reset();
+        // Push, no polling: ogni sessions.changed marca sporco el scan veloce.
+        // Se el facade no ghe xe, el TTL del scan veloce fa da fallback.
+        unsubscribeSessionsChanged = ctx.gatewayEvents?.onSessionsChanged(() => {
+          coordinator.markSessionsDirty();
+        });
         try {
           await server.start();
         } catch (error) {
-          await cache.stop();
+          await coordinator.stop();
           throw error;
         }
       },
       async stop() {
-        await Promise.all([server.stop(), cache.stop()]);
+        unsubscribeSessionsChanged?.();
+        unsubscribeSessionsChanged = undefined;
+        await Promise.all([server.stop(), coordinator.stop()]);
       },
     });
   },

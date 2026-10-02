@@ -1,27 +1,106 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { OpenClawCollector, snapshotFromPayload } from "../src/collector.js";
-import type { CommandRunner, PluginOptions } from "../src/types.js";
+import {
+  SlowCycleCollector,
+  agentsFromConfig,
+  listAllSessionRows,
+  sessionStatusFromRows,
+  slowPartFromPayloads,
+} from "../src/collector.js";
+import type { CommandRunner, PluginOptions, SessionRowSummary } from "../src/types.js";
 
-describe("snapshotFromPayload", () => {
-  it("returns aggregates and drops identity fields", () => {
+const options: PluginOptions = {
+  host: "0.0.0.0",
+  port: 8765,
+  fastTtlMs: 15_000,
+  slowTtlMs: 60_000,
+  timeoutMs: 60_000,
+  activeMinutes: 15,
+  workboard: "all",
+  executable: "openclaw",
+};
+
+const NOW = 100_000_000;
+
+describe("agentsFromConfig", () => {
+  it("always includes main and dedupes configured agents", () => {
+    expect(agentsFromConfig({ agents: { main: {}, ops: {}, support: {} } })).toEqual([
+      "main",
+      "ops",
+      "support",
+    ]);
+    expect(agentsFromConfig({})).toEqual(["main"]);
+  });
+});
+
+describe("listAllSessionRows", () => {
+  it("skips agents whose store cannot be read", () => {
+    const listSessions = vi.fn((params?: { agentId?: string }) => {
+      if (params?.agentId === "broken") throw new Error("no store");
+      return [{ sessionKey: `${params?.agentId}:row`, entry: {} }];
+    });
+    const rows = listAllSessionRows(listSessions, ["main", "broken"]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.sessionKey).toBe("main:row");
+  });
+});
+
+describe("sessionStatusFromRows", () => {
+  const rows: SessionRowSummary[] = [
+    {
+      sessionKey: "a",
+      entry: { updatedAt: NOW - 60_000, model: "gpt-test", totalTokensFresh: true, totalTokens: 40, contextTokens: 100 },
+    },
+    {
+      sessionKey: "b",
+      entry: { updatedAt: NOW - 120_000, model: "older-model", totalTokensFresh: true, totalTokens: 20, contextTokens: 100 },
+    },
+    {
+      sessionKey: "c",
+      entry: { updatedAt: NOW - 300_000, totalTokensFresh: false, totalTokens: 99, contextTokens: 100 },
+    },
+    {
+      sessionKey: "d",
+      entry: { updatedAt: NOW - 7_200_000 },
+    },
+    {
+      sessionKey: "e",
+      entry: { updatedAt: NOW - 90_000_000 },
+    },
+  ];
+
+  it("counts windows, token load and newest active model without exposing identities", () => {
+    expect(sessionStatusFromRows(rows, 15, NOW)).toEqual({
+      total: 5,
+      recent: 4,
+      active: 3,
+      tokenLoadPercent: 30,
+      tokenSamples: 2,
+      model: "gpt-test",
+    });
+  });
+
+  it("degrades to zero load when token fields are absent", () => {
+    const status = sessionStatusFromRows(
+      [{ sessionKey: "a", entry: { updatedAt: NOW - 1_000, model: "m" } }],
+      15,
+      NOW,
+    );
+    expect(status.tokenLoadPercent).toBe(0);
+    expect(status.tokenSamples).toBe(0);
+    expect(status.model).toBe("m");
+  });
+});
+
+describe("slowPartFromPayloads", () => {
+  it("maps aggregates and workboard counts, dropping private fields", () => {
     const payload = {
-      gateway: { reachable: true, connectLatencyMs: 42, url: "secret-host" },
-      sessions: {
-        count: 17,
-        recent: [
-          {
-            key: "private-session-key",
-            recipient: "private-recipient",
-            model: "gpt-test",
-          },
-        ],
-      },
       tasks: { active: 2, failures: 1 },
-      agents: { agents: [{ id: "main" }, { id: "ops" }] },
+      agents: { agents: [{ id: "ignored" }] },
+      cliProjection: { agents: { rows: [{ id: "main" }, { id: "ops" }] } },
       heartbeat: { agents: [{ enabled: true }, { enabled: false }] },
-      runtimeVersion: "2026.9.3",
-      queuedSystemEvents: [{ private: "payload" }],
+      runtimeVersion: "2026.9.7",
+      queuedSystemEvents: [{ private: "payload" }, { private: "payload" }],
       degradedPlugins: [],
     };
     const workboard = {
@@ -36,203 +115,81 @@ describe("snapshotFromPayload", () => {
       ],
     };
 
-    const publicPayload = snapshotFromPayload(
-      payload,
-      {
-        count: 3,
-        sessions: [
-          { totalTokensFresh: true, totalTokens: 40, contextTokens: 100 },
-          { totalTokensFresh: true, totalTokens: 20, contextTokens: 100 },
-          { totalTokensFresh: false, totalTokens: 99, contextTokens: 100 },
-        ],
-      },
-      workboard,
-      100_000_000,
-    );
-
-    expect(publicPayload.gateway).toEqual({ online: true, latencyMs: 42 });
-    expect(publicPayload.sessions).toEqual({
-      total: 17,
-      recent: 1,
-      active: 3,
-      tokenLoadPercent: 30,
-      tokenSamples: 2,
-      model: "gpt-test",
+    expect(slowPartFromPayloads(payload, workboard, NOW)).toEqual({
+      tasks: { active: 2, failures: 1 },
+      agents: { total: 2, heartbeatEnabled: 1 },
+      system: { version: "2026.9.7", queuedEvents: 2, degradedPlugins: 0 },
+      workboard: { triage: 1, running: 1, blocked: 1, done24h: 1 },
     });
-    expect(publicPayload.agents).toEqual({ total: 2, heartbeatEnabled: 1 });
-    expect(publicPayload.workboard).toEqual({ triage: 1, running: 1, blocked: 1, done24h: 1 });
-    const serialized = JSON.stringify(publicPayload);
-    expect(serialized).not.toContain("private-session-key");
-    expect(serialized).not.toContain("private-recipient");
-    expect(serialized).not.toContain("secret-host");
-    expect(serialized).not.toContain("private title");
-    expect(serialized).not.toContain("private notes");
-    expect(serialized).not.toContain("private metadata");
+  });
+});
+
+describe("SlowCycleCollector", () => {
+  function runnerWith(outputs: Array<{ stdout?: unknown; code?: number }>): {
+    runner: CommandRunner;
+    argvs: string[][];
+  } {
+    const argvs: string[][] = [];
+    let index = 0;
+    const runner: CommandRunner = async (argv) => {
+      argvs.push(argv);
+      const output = outputs[Math.min(index, outputs.length - 1)] ?? { stdout: {} };
+      index += 1;
+      return {
+        stdout: JSON.stringify(output.stdout ?? {}),
+        stderr: "",
+        code: output.code ?? 0,
+        termination: "exit",
+      };
+    };
+    return { runner, argvs };
+  }
+
+  it("runs the status RPC first and the workboard query second, serially", async () => {
+    const { runner, argvs } = runnerWith([
+      { stdout: { runtimeVersion: "x", cliProjection: { agents: { rows: [{}] } } } },
+      { stdout: { cards: [] } },
+    ]);
+    const collector = new SlowCycleCollector(runner, options);
+    await collector.collect();
+    expect(argvs[0]?.slice(1, 4)).toEqual(["gateway", "call", "status"]);
+    expect(argvs[0]?.join(" ")).not.toContain("system-presence");
+    expect(argvs[1]?.slice(1, 3)).toEqual(["workboard", "list"]);
   });
 
-  it("tolerates missing and wrong types", () => {
-    const publicPayload = snapshotFromPayload({ gateway: null, sessions: [] }, {}, {}, 7);
+  it("falls back to four serial status queries when the global list is capped at 50", async () => {
+    const { runner, argvs } = runnerWith([
+      { stdout: { runtimeVersion: "x" } },
+      { stdout: { cards: Array.from({ length: 50 }, (_, i) => ({ status: "running", id: i })) } },
+      { stdout: { cards: [{ status: "triage" }] } },
+      { stdout: { cards: [] } },
+      { stdout: { cards: [] } },
+      { stdout: { cards: [] } },
+    ]);
+    const collector = new SlowCycleCollector(runner, options);
+    const { workboard } = await collector.collect();
+    expect(argvs).toHaveLength(6);
+    expect((workboard as { cards: unknown[] }).cards).toHaveLength(1);
+  });
 
-    expect(publicPayload.ok).toBe(false);
-    expect(publicPayload.sessions).toMatchObject({
-      model: "unknown",
-      active: 0,
-      tokenLoadPercent: 0,
-      tokenSamples: 0,
+  it("uses the configured board when workboard is not all", async () => {
+    const { runner, argvs } = runnerWith([
+      { stdout: { runtimeVersion: "x" } },
+      { stdout: { cards: [] } },
+    ]);
+    const collector = new SlowCycleCollector(runner, { ...options, workboard: "support-tickets" });
+    await collector.collect();
+    expect(argvs[1]?.join(" ")).toContain("support-tickets");
+  });
+
+  it("propagates CLI failures with bounded detail", async () => {
+    const runner: CommandRunner = async () => ({
+      stdout: "",
+      stderr: "boom-detail",
+      code: 1,
+      termination: "exit",
     });
-    expect(publicPayload.tasks).toEqual({ active: 0, failures: 0 });
-    expect(publicPayload.workboard).toEqual({ triage: 0, running: 0, blocked: 0, done24h: 0 });
-  });
-
-  it("reads Gateway status directly without the presence-probing CLI", async () => {
-    const calls: string[][] = [];
-    const options: PluginOptions = {
-      host: "127.0.0.1",
-      port: 8765,
-      intervalMs: 5000,
-      timeoutMs: 10000,
-      activeMinutes: 15,
-      workboard: "default",
-      executable: "openclaw",
-    };
-    const runCommand: CommandRunner = async (argv) => {
-      calls.push(argv);
-      const body = argv.includes("gateway")
-        ? {
-            runtimeVersion: "2026.9.6",
-            sessions: { count: 4, recent: [{ model: "gpt-test", key: "private" }] },
-            tasks: { active: 2, failures: 1 },
-            cliProjection: { agents: { rows: [{ id: "main" }, { id: "qa" }] } },
-            heartbeat: { agents: [{ enabled: true }, { enabled: false }] },
-            degradedPlugins: [],
-            queuedSystemEvents: [],
-          }
-        : argv.includes("sessions")
-          ? { count: 1, sessions: [] }
-          : { cards: [] };
-      return { stdout: JSON.stringify(body), stderr: "", code: 0, termination: "exit" };
-    };
-
-    const result = await new OpenClawCollector(runCommand, options).collect();
-
-    expect(calls[0]).toEqual([
-      "openclaw", "gateway", "call", "status", "--params",
-      '{"includeChannelSummary":false,"includeCliProjection":true}', "--json",
-    ]);
-    expect(calls).not.toContainEqual(["openclaw", "status", "--json"]);
-    expect(result.gateway.online).toBe(true);
-    expect(result.gateway.latencyMs).toBeGreaterThanOrEqual(0);
-    expect(result.sessions).toMatchObject({ total: 4, recent: 1, active: 1, model: "gpt-test" });
-    expect(result.agents).toEqual({ total: 2, heartbeatEnabled: 1 });
-    expect(result.tasks).toEqual({ active: 2, failures: 1 });
-    expect(JSON.stringify(result)).not.toContain("private");
-  });
-
-  it("keeps working when the optional Workboard plugin is absent", async () => {
-    const options: PluginOptions = {
-      host: "127.0.0.1",
-      port: 8765,
-      intervalMs: 5000,
-      timeoutMs: 10000,
-      activeMinutes: 15,
-      workboard: "default",
-      executable: "openclaw",
-    };
-    const runCommand: CommandRunner = async (argv) => {
-      if (argv.includes("workboard")) throw new Error("workboard plugin missing");
-      const body = argv.includes("sessions")
-        ? { count: 0, sessions: [] }
-        : { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
-      return {
-        stdout: JSON.stringify(body),
-        stderr: "",
-        code: 0,
-        termination: "exit",
-      };
-    };
-
-    const result = await new OpenClawCollector(runCommand, options).collect();
-
-    expect(result.ok).toBe(true);
-    expect(result.workboard).toEqual({ triage: 0, running: 0, blocked: 0, done24h: 0 });
-  });
-
-  it("uses the complete global Workboard list when configured with the all sentinel", async () => {
-    const calls: string[][] = [];
-    const options: PluginOptions = {
-      host: "127.0.0.1",
-      port: 8765,
-      intervalMs: 5000,
-      timeoutMs: 10000,
-      activeMinutes: 15,
-      workboard: "all",
-      executable: "openclaw",
-    };
-    const runCommand: CommandRunner = async (argv) => {
-      calls.push(argv);
-      const body = argv.includes("workboard")
-        ? {
-            cards: Array.from({ length: 51 }, (_, index) => ({
-              status: index === 0 ? "running" : index === 1 ? "blocked" : "done",
-            })),
-          }
-        : argv.includes("sessions")
-          ? { count: 0, sessions: [] }
-          : { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
-      return {
-        stdout: JSON.stringify(body),
-        stderr: "",
-        code: 0,
-        termination: "exit",
-      };
-    };
-
-    const result = await new OpenClawCollector(runCommand, options).collect();
-
-    expect(calls.filter((argv) => argv.includes("workboard"))).toEqual([
-      ["openclaw", "workboard", "list", "--json"],
-    ]);
-    expect(result.workboard).toMatchObject({ running: 1, blocked: 1 });
-  });
-
-  it("falls back to serial status queries for the legacy 50-card page", async () => {
-    const calls: string[][] = [];
-    const options: PluginOptions = {
-      host: "127.0.0.1",
-      port: 8765,
-      intervalMs: 5000,
-      timeoutMs: 10000,
-      activeMinutes: 15,
-      workboard: "all",
-      executable: "openclaw",
-    };
-    const runCommand: CommandRunner = async (argv) => {
-      calls.push(argv);
-      let body: object;
-      if (argv.includes("workboard") && !argv.includes("--status")) {
-        body = { cards: Array.from({ length: 50 }, () => ({ status: "done" })) };
-      } else if (argv.includes("workboard")) {
-        body = { cards: [{ status: argv[argv.indexOf("--status") + 1] }] };
-      } else if (argv.includes("sessions")) {
-        body = { count: 0, sessions: [] };
-      } else {
-        body = { gateway: { reachable: true }, sessions: { count: 0, recent: [] } };
-      }
-      return {
-        stdout: JSON.stringify(body),
-        stderr: "",
-        code: 0,
-        termination: "exit",
-      };
-    };
-
-    const result = await new OpenClawCollector(runCommand, options).collect();
-
-    expect(
-      calls
-        .filter((argv) => argv.includes("workboard"))
-        .map((argv) => (argv.includes("--status") ? argv[argv.indexOf("--status") + 1] : "all")),
-    ).toEqual(["all", "triage", "running", "blocked", "done"]);
-    expect(result.workboard).toEqual({ triage: 1, running: 1, blocked: 1, done24h: 0 });
+    const collector = new SlowCycleCollector(runner, options);
+    await expect(collector.collect()).rejects.toThrow("boom-detail");
   });
 });

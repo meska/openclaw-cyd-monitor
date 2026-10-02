@@ -1,66 +1,155 @@
 import { createServer, type Server } from "node:http";
 
-import type { Logger, PluginOptions, StatusSnapshot } from "./types.js";
+import {
+  EMPTY_SLOW_PART,
+  listAllSessionRows,
+  sessionStatusFromRows,
+  type SlowStatusPart,
+} from "./collector.js";
+import type {
+  Logger,
+  PluginOptions,
+  SessionLister,
+  SessionStatus,
+  StatusSnapshot,
+} from "./types.js";
 
-export interface SnapshotCollector {
-  collect(): Promise<StatusSnapshot>;
+const EMPTY_SESSION_STATUS: SessionStatus = {
+  total: 0,
+  recent: 0,
+  active: 0,
+  tokenLoadPercent: 0,
+  tokenSamples: 0,
+  model: "unknown",
+};
+
+export interface StatusCoordinatorDeps {
+  options: PluginOptions;
+  logger: Logger;
+  listSessions: SessionLister;
+  getAgentIds: () => string[];
+  collectSlowPart: () => Promise<SlowStatusPart>;
+  now?: () => number;
 }
 
-export class SnapshotCache {
-  private snapshot: StatusSnapshot | undefined;
-  private error = "warming up";
-  private timer: NodeJS.Timeout | undefined;
-  private currentRefresh: Promise<void> | undefined;
-  private stopping = false;
+/**
+ * Niente piu' timer: el display xe l'unico client e decide lui quando si spende.
+ * - Fast: scan sessioni in-process, a richiesta o su evento sessions.changed.
+ * - Slow: ciclo CLI seriale (status + workboard), single-flight, solo se scaduto.
+ * Display staccato = zero subprocess, zero letture DB.
+ */
+export class StatusCoordinator {
+  private readonly now: () => number;
+  private sessionStatus: SessionStatus | undefined;
+  private slowPart: SlowStatusPart | undefined;
+  private fastDirty = true;
+  private fastError = "";
+  private slowError = "";
+  private lastFastAt = 0;
+  private lastSlowAt = 0;
+  private fastScanMs = 0;
+  private slowInFlight: Promise<void> | undefined;
 
-  public constructor(
-    private readonly collector: SnapshotCollector,
-    private readonly intervalMs: number,
-    private readonly logger: Logger,
-  ) {}
+  public constructor(private readonly deps: StatusCoordinatorDeps) {
+    this.now = deps.now ?? Date.now;
+  }
 
-  public start(): void {
-    this.stopping = false;
-    this.schedule(0);
+  public markSessionsDirty(): void {
+    this.fastDirty = true;
+  }
+
+  public reset(): void {
+    this.sessionStatus = undefined;
+    this.slowPart = undefined;
+    this.fastDirty = true;
+    this.fastError = "";
+    this.slowError = "";
+    this.lastFastAt = 0;
+    this.lastSlowAt = 0;
+    this.slowInFlight = undefined;
+  }
+
+  public request(): { body: StatusSnapshot | { schema: 2; ok: false; error: string }; status: number } {
+    const now = this.now();
+    if (this.fastDirty || now - this.lastFastAt >= this.deps.options.fastTtlMs) {
+      this.refreshFast(now);
+    }
+    if (
+      !this.slowInFlight &&
+      (this.slowPart === undefined || now - this.lastSlowAt >= this.deps.options.slowTtlMs)
+    ) {
+      // Fire-and-forget: el display pol servisarse co i dati de un minuto fa.
+      this.slowInFlight = this.refreshSlow().finally(() => {
+        this.slowInFlight = undefined;
+      });
+    }
+
+    if (this.sessionStatus === undefined && this.slowPart === undefined) {
+      return { body: { schema: 2, ok: false, error: this.fastError || "warming up" }, status: 503 };
+    }
+
+    const sessions = this.sessionStatus ?? EMPTY_SESSION_STATUS;
+    const slow = this.slowPart ?? EMPTY_SLOW_PART;
+    const errors = [this.fastError, this.slowError].filter(Boolean);
+    const warming = this.slowPart === undefined && !this.slowError;
+
+    const body: StatusSnapshot = {
+      schema: 2,
+      // Se stiamo rispondendo, el Gateway el xe vivo per definizion.
+      ok: true,
+      collectedAtMs: now,
+      gateway: { online: true, latencyMs: this.fastScanMs },
+      sessions,
+      tasks: slow.tasks,
+      agents: slow.agents,
+      system: slow.system,
+      workboard: slow.workboard,
+    };
+    if (errors.length > 0) {
+      body.stale = true;
+      body.error = errors[0] ?? "status refresh failed";
+    } else if (warming) {
+      body.stale = true;
+      body.error = "warming up";
+    }
+    return { body, status: 200 };
   }
 
   public async stop(): Promise<void> {
-    this.stopping = true;
-    if (this.timer) clearTimeout(this.timer);
-    await this.currentRefresh;
+    await this.slowInFlight;
   }
 
-  public payload(): { body: StatusSnapshot | { schema: 2; ok: false; error: string }; status: number } {
-    if (!this.snapshot) {
-      return { body: { schema: 2, ok: false, error: this.error }, status: 503 };
-    }
-    if (!this.error) return { body: this.snapshot, status: 200 };
-    return {
-      body: { ...this.snapshot, stale: true, error: this.error },
-      status: 200,
-    };
-  }
-
-  private schedule(delayMs: number): void {
-    this.timer = setTimeout(() => {
-      this.currentRefresh = this.refresh().finally(() => {
-        this.currentRefresh = undefined;
-        if (!this.stopping) this.schedule(this.intervalMs);
-      });
-    }, delayMs);
-  }
-
-  private async refresh(): Promise<void> {
+  private refreshFast(now: number): void {
+    const startedAt = this.now();
     try {
-      this.snapshot = await this.collector.collect();
-      this.error = "";
+      const rows = listAllSessionRows(this.deps.listSessions, this.deps.getAgentIds());
+      this.sessionStatus = sessionStatusFromRows(rows, this.deps.options.activeMinutes, now);
+      this.fastScanMs = Math.max(0, this.now() - startedAt);
+      this.fastError = "";
     } catch (error) {
-      const detail = error instanceof Error ? error.message.slice(0, 160) : "unknown error";
-      // El client LAN riceve solo un errore neutro; percorsi e stderr resta nei log locali.
-      this.error = "status refresh failed";
-      this.logger.warn(`Status refresh failed: ${detail}`);
+      // El client LAN riceve solo un errore neutro; i dettagli resta nei log locali.
+      this.fastError = "status refresh failed";
+      this.deps.logger.warn(`Fast session scan failed: ${describe(error)}`);
+    }
+    this.fastDirty = false;
+    this.lastFastAt = now;
+  }
+
+  private async refreshSlow(): Promise<void> {
+    try {
+      const part = await this.deps.collectSlowPart();
+      this.slowPart = part;
+      this.lastSlowAt = this.now();
+      this.slowError = "";
+    } catch (error) {
+      this.slowError = "status refresh failed";
+      this.deps.logger.warn(`Slow status cycle failed: ${describe(error)}`);
     }
   }
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 160) : "unknown error";
 }
 
 function sendJson(response: import("node:http").ServerResponse, status: number, body: unknown): void {
@@ -79,7 +168,7 @@ export class MonitorServer {
 
   public constructor(
     private readonly options: PluginOptions,
-    private readonly cache: SnapshotCache,
+    private readonly coordinator: StatusCoordinator,
     private readonly logger: Logger,
   ) {}
 
@@ -91,7 +180,7 @@ export class MonitorServer {
         return;
       }
       if (path === "/api/status") {
-        const payload = this.cache.payload();
+        const payload = this.coordinator.request();
         sendJson(response, payload.status, payload.body);
         return;
       }

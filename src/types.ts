@@ -49,15 +49,34 @@ export interface StatusSnapshot {
   error?: string;
 }
 
+/**
+ * Plugin 0.4.0: niente piu' loop a tempo. Il refresh veloce (in-process)
+ * e quello lento (CLI seriale) scattano solo quando il display chiede.
+ */
 export interface PluginOptions {
   host: string;
   port: number;
-  intervalMs: number;
+  fastTtlMs: number;
+  slowTtlMs: number;
   timeoutMs: number;
   activeMinutes: number;
   workboard: string;
   executable: string;
 }
+
+/** Riga sessione letta in-process: la forma minima che ci serve. */
+export interface SessionRowSummary {
+  sessionKey: string;
+  entry: Record<string, unknown>;
+}
+
+export type SessionLister = (params?: { agentId?: string }) => SessionRowSummary[];
+
+export interface ConfigSnapshot {
+  agents?: Record<string, unknown>;
+}
+
+export type ConfigProvider = () => ConfigSnapshot;
 
 export interface CommandResult {
   stdout: string;

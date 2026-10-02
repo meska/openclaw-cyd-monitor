@@ -1,4 +1,14 @@
-import type { CommandRunner, PluginOptions, StatusSnapshot } from "./types.js";
+import type {
+  AgentStatus,
+  CommandRunner,
+  PluginOptions,
+  SessionLister,
+  SessionRowSummary,
+  SessionStatus,
+  SystemStatus,
+  TaskStatus,
+  WorkboardStatus,
+} from "./types.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -13,24 +23,124 @@ function asArray(value: unknown): unknown[] {
 }
 
 function asInteger(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
-  return Math.max(0, Math.trunc(value));
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  return 0;
 }
 
-export function snapshotFromPayload(
+/** Tira fora el primo campo numerico coerente tra i nomi candidati. */
+function pickNumber(entry: JsonObject, names: string[]): number | undefined {
+  for (const name of names) {
+    const value = entry[name];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  }
+  return undefined;
+}
+
+function pickBoolean(entry: JsonObject, names: string[]): boolean | undefined {
+  for (const name of names) {
+    const value = entry[name];
+    if (typeof value === "boolean") return value;
+  }
+  return undefined;
+}
+
+function rowUpdatedAt(row: SessionRowSummary): number {
+  return pickNumber(row.entry, ["updatedAt", "lastActivity", "touchedAt"]) ?? 0;
+}
+
+/** Agenti configurati + main: el perimetro del scan in-process. */
+export function agentsFromConfig(config: { agents?: Record<string, unknown> }): string[] {
+  const ids = new Set<string>(["main"]);
+  for (const id of Object.keys(config.agents ?? {})) ids.add(id);
+  return [...ids];
+}
+
+export function listAllSessionRows(
+  listSessions: SessionLister,
+  agentIds: string[],
+): SessionRowSummary[] {
+  const rows: SessionRowSummary[] = [];
+  // Un agente rotto no deve fermare i altri: el display mostra quel che ghe xe.
+  for (const agentId of agentIds) {
+    try {
+      rows.push(...(listSessions({ agentId }) ?? []));
+    } catch {
+      // Agente senza store o non ancora inizializzato: saltalo e via.
+    }
+  }
+  return rows;
+}
+
+export function sessionStatusFromRows(
+  rows: SessionRowSummary[],
+  activeMinutes: number,
+  nowMs: number,
+): SessionStatus {
+  const activeCutoffMs = nowMs - activeMinutes * 60_000;
+  const recentCutoffMs = nowMs - 86_400_000;
+
+  const active = rows.filter((row) => rowUpdatedAt(row) >= activeCutoffMs);
+  const activeSorted = [...active].sort((a, b) => rowUpdatedAt(b) - rowUpdatedAt(a));
+  const newest = activeSorted[0];
+
+  let tokenCapacity = 0;
+  let tokenUsage = 0;
+  let tokenSamples = 0;
+  for (const row of activeSorted) {
+    const fresh = pickBoolean(row.entry, ["totalTokensFresh", "tokensFresh", "tokenUsageFresh"]);
+    const total = pickNumber(row.entry, ["totalTokens", "tokens", "total_tokens"]);
+    const context = pickNumber(row.entry, ["contextTokens", "contextWindowTokens", "context_window"]);
+    if (fresh !== true || total === undefined || context === undefined || context <= 0) continue;
+    tokenCapacity += context;
+    tokenUsage += total;
+    tokenSamples += 1;
+  }
+
+  const rawModel = newest?.entry.model ?? newest?.entry.configuredModel ?? "unknown";
+  const model = typeof rawModel === "string" ? rawModel.slice(0, 31) : "unknown";
+
+  return {
+    total: rows.length,
+    recent: rows.filter((row) => rowUpdatedAt(row) >= recentCutoffMs).length,
+    active: active.length,
+    tokenLoadPercent: tokenCapacity
+      ? Math.min(100, Math.round((tokenUsage * 100) / tokenCapacity))
+      : 0,
+    tokenSamples,
+    model,
+  };
+}
+
+export interface SlowStatusPart {
+  tasks: TaskStatus;
+  agents: AgentStatus;
+  system: SystemStatus;
+  workboard: WorkboardStatus;
+}
+
+const EMPTY_SLOW_PART: SlowStatusPart = {
+  tasks: { active: 0, failures: 0 },
+  agents: { total: 0, heartbeatEnabled: 0 },
+  system: { version: "unknown", queuedEvents: 0, degradedPlugins: 0 },
+  workboard: { triage: 0, running: 0, blocked: 0, done24h: 0 },
+};
+
+/**
+ * Aggregati lenti dal payload RPC status + Workboard: stessi conteggi della
+ * 0.3.x, ma ora li si va a cercare una volta al minuto, non ogni 5 secondi.
+ */
+export function slowPartFromPayloads(
   payload: JsonObject,
-  activePayload: JsonObject = {},
-  workboardPayload: JsonObject = {},
+  workboardPayload: JsonObject,
   nowMs: number = Date.now(),
-): StatusSnapshot {
-  const gateway = asObject(payload.gateway);
-  const sessions = asObject(payload.sessions);
-  const recent = asArray(sessions.recent).map(asObject);
-  const newest = recent[0] ?? {};
+): SlowStatusPart {
   const tasks = asObject(payload.tasks);
-  const agents = asArray(asObject(payload.agents).agents);
+  const projection = asObject(payload.cliProjection);
+  const agents =
+    asArray(asObject(projection.agents).rows).length > 0
+      ? asArray(asObject(projection.agents).rows)
+      : asArray(asObject(payload.agents).agents);
   const heartbeatAgents = asArray(asObject(payload.heartbeat).agents).map(asObject);
-  const activeItems = asArray(activePayload.sessions).map(asObject);
   const workboardCards = asArray(workboardPayload.cards).map(asObject);
 
   const cardsWithStatus = (expected: string): number =>
@@ -47,45 +157,8 @@ export function snapshotFromPayload(
       asInteger(item.completedAt) >= cutoffMs,
   ).length;
 
-  const freshTokenItems = activeItems.filter(
-    (item) =>
-      item.totalTokensFresh === true &&
-      typeof item.totalTokens === "number" &&
-      asInteger(item.contextTokens) > 0,
-  );
-  const tokenCapacity = freshTokenItems.reduce(
-    (total, item) => total + asInteger(item.contextTokens),
-    0,
-  );
-  const tokenUsage = freshTokenItems.reduce(
-    (total, item) => total + asInteger(item.totalTokens),
-    0,
-  );
-  const rawModel = newest.model ?? newest.configuredModel ?? "unknown";
-  const model = typeof rawModel === "string" ? rawModel.slice(0, 31) : "unknown";
-
   return {
-    schema: 2,
-    ok: Boolean(gateway.reachable),
-    collectedAtMs: nowMs,
-    gateway: {
-      online: Boolean(gateway.reachable),
-      latencyMs: asInteger(gateway.connectLatencyMs),
-    },
-    sessions: {
-      total: asInteger(sessions.count),
-      recent: recent.length,
-      active: asInteger(activePayload.count),
-      tokenLoadPercent: tokenCapacity
-        ? Math.min(100, Math.round((tokenUsage * 100) / tokenCapacity))
-        : 0,
-      tokenSamples: freshTokenItems.length,
-      model,
-    },
-    tasks: {
-      active: asInteger(tasks.active),
-      failures: asInteger(tasks.failures),
-    },
+    tasks: { active: asInteger(tasks.active), failures: asInteger(tasks.failures) },
     agents: {
       total: agents.length,
       heartbeatEnabled: heartbeatAgents.filter((item) => Boolean(item.enabled)).length,
@@ -104,36 +177,24 @@ export function snapshotFromPayload(
   };
 }
 
-export class OpenClawCollector {
+/** Ciclo lento: due letture CLI **seriali**, mai in parallelo. */
+export class SlowCycleCollector {
   public constructor(
     private readonly runCommand: CommandRunner,
     private readonly options: PluginOptions,
   ) {}
 
-  public async collect(): Promise<StatusSnapshot> {
-    // Le tre letture xe indipendenti: in parallelo el display no aspetta la somma dei CLI.
-    const [status, active, workboard] = await Promise.all([
-      this.collectGatewayStatus(),
-      this.runJson([
-        "sessions",
-        "--all-agents",
-        "--active",
-        String(this.options.activeMinutes),
-        "--limit",
-        "all",
-        "--json",
-      ]),
-      // Workboard xe opzionale in OpenClaw: senza plugin mostremo zeri, no un display rotto.
-      this.collectWorkboard().catch(() => ({})),
-    ]);
-    return snapshotFromPayload(status, active, workboard);
+  public async collect(): Promise<{ status: JsonObject; workboard: JsonObject }> {
+    const status = await this.collectGatewayStatus();
+    // Workboard xe opzionale in OpenClaw: senza plugin mostremo zeri, no un display rotto.
+    const workboard = await this.collectWorkboard().catch(() => ({}) as JsonObject);
+    return { status, workboard };
   }
 
   private async collectGatewayStatus(): Promise<JsonObject> {
-    const startedAt = performance.now();
     // La CLI status fa un probe system-presence prima della proiezion: col token
     // del plugin vien FORBIDDEN. La RPC status dà gli stessi aggregati senza quel probe.
-    const status = await this.runJson([
+    return this.runJson([
       "gateway",
       "call",
       "status",
@@ -141,12 +202,6 @@ export class OpenClawCollector {
       '{"includeChannelSummary":false,"includeCliProjection":true}',
       "--json",
     ]);
-    const projection = asObject(status.cliProjection);
-    return {
-      ...status,
-      gateway: { reachable: true, connectLatencyMs: Math.round(performance.now() - startedAt) },
-      agents: { agents: asArray(asObject(projection.agents).rows) },
-    };
   }
 
   private async collectWorkboard(): Promise<JsonObject> {
@@ -186,3 +241,5 @@ export class OpenClawCollector {
     return parsed as JsonObject;
   }
 }
+
+export { EMPTY_SLOW_PART };

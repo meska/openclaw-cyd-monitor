@@ -71,12 +71,21 @@ npm install
 npm test
 npm run check
 npm pack --pack-destination /tmp
-openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.3.3.tgz --force
+openclaw plugins install npm-pack:/tmp/openclaw-cyd-monitor-0.4.0.tgz --force
 ```
 
-The plugin listens on `0.0.0.0:8765` and refreshes every five seconds after
-each collection completes. Since 0.3.3 it reads the Gateway `status` RPC directly,
-without the CLI presence probe or additional Gateway permissions.
+The plugin listens on `0.0.0.0:8765` and refreshes only when the display asks.
+Since 0.4.0 there is no background polling loop:
+
+- Session counters are read in-process through the plugin runtime
+  (`listSessionEntries`), refreshed on request or when the Gateway emits a
+  `sessions.changed` notice — no subprocess, no extra database handles.
+- Tasks, agents, system and Workboard aggregates come from one serial CLI
+  cycle (`gateway call status`, then `workboard list`) that runs at most once
+  per `slowTtlMs` while a display is actually polling.
+
+With the display unplugged the plugin spawns zero processes and runs zero
+queries; while the display polls every 5 s the cost is one CLI cycle per minute.
 
 Override settings through `plugins.entries.openclaw-cyd-monitor.config`:
 
@@ -84,7 +93,8 @@ Override settings through `plugins.entries.openclaw-cyd-monitor.config`:
 {
   "host": "0.0.0.0",
   "port": 8765,
-  "intervalMs": 5000,
+  "fastTtlMs": 15000,
+  "slowTtlMs": 60000,
   "timeoutMs": 60000,
   "activeMinutes": 15,
   "workboard": "all"
