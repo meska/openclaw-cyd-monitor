@@ -145,11 +145,14 @@ export class StatusCoordinator {
     try {
       const part = await this.deps.collectSlowPart();
       this.slowPart = part;
-      this.lastSlowAt = this.now();
       this.slowError = "";
     } catch (error) {
       this.slowError = "status refresh failed";
       this.deps.logger.warn(`Slow status cycle failed: ${describe(error)}`);
+    } finally {
+      // Backoff: anche un fallimento consuma il TTL, così un ciclo che sbaglia
+      // di continuo no riparte a ogni poll del display.
+      this.lastSlowAt = this.now();
     }
   }
 }
